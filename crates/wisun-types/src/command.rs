@@ -36,26 +36,42 @@ pub const CMD_NET_CLEAR: u32 = 10;
 /// Recall network settings from non-volatile storage.
 pub const CMD_NET_RECALL: u32 = 11;
 
-/// Host-side buffer offload.
+/// Host-side buffer offload requests (Host → NCP).
 pub const CMD_HBO_OFFLOAD: u32 = 12;
 pub const CMD_HBO_RECLAIM: u32 = 13;
 pub const CMD_HBO_DROP: u32 = 14;
+
+/// Offload acknowledgement (NCP → Host).
+pub const CMD_HBO_OFFLOADED: u32 = 15;
+/// Reclaim acknowledgement (NCP → Host).
+pub const CMD_HBO_RECLAIMED: u32 = 16;
+/// Drop acknowledgement (NCP → Host).
+pub const CMD_HBO_DROPPED: u32 = 17;
 
 /// Peek / poke (debug / diagnostics).
 pub const CMD_PEEK: u32 = 18;
 pub const CMD_PEEK_RET: u32 = 19;
 pub const CMD_POKE: u32 = 20;
 
-/// Multi-get / multi-set.
+/// Multi-get / multi-set (Host → NCP).
 pub const CMD_PROP_VALUE_MULTI_GET: u32 = 21;
 pub const CMD_PROP_VALUE_MULTI_SET: u32 = 22;
+
+/// Multi-property value notification / response (NCP → Host).
+pub const CMD_PROP_VALUES_ARE: u32 = 23;
+
+/// Nest command range.
+pub const CMD_NEST__BEGIN: u32 = 15296;
+pub const CMD_NEST__END: u32 = 15360;
 
 /// Vendor command range start.
 pub const CMD_VENDOR__BEGIN: u32 = 15360;
 /// Vendor command range end.
 pub const CMD_VENDOR__END: u32 = 16384;
 
-const _: () = assert!(CMD_VENDOR__BEGIN < CMD_VENDOR__END);
+/// Experimental command range.
+pub const CMD_EXPERIMENTAL__BEGIN: u32 = 2_000_000;
+pub const CMD_EXPERIMENTAL__END: u32 = 2_097_152;
 
 #[cfg(test)]
 mod tests {
@@ -71,7 +87,21 @@ mod tests {
     }
 
     #[test]
-    fn vendor_range_is_valid() {
-        assert!(CMD_VENDOR__BEGIN < CMD_VENDOR__END);
+    fn command_range_values() {
+        // Range bounds must match spinel.h exactly; NEST__END abuts VENDOR__BEGIN.
+        assert_eq!(CMD_NEST__BEGIN, 15296);
+        assert_eq!(CMD_NEST__END, 15360);
+        assert_eq!(CMD_VENDOR__BEGIN, 15360);
+        assert_eq!(CMD_VENDOR__END, 16384);
+        assert_eq!(CMD_EXPERIMENTAL__BEGIN, 2_000_000);
+        assert_eq!(CMD_EXPERIMENTAL__END, 2_097_152);
+    }
+
+    #[test]
+    fn notification_command_values() {
+        assert_eq!(CMD_HBO_OFFLOADED, 15);
+        assert_eq!(CMD_HBO_RECLAIMED, 16);
+        assert_eq!(CMD_HBO_DROPPED, 17);
+        assert_eq!(CMD_PROP_VALUES_ARE, 23);
     }
 }

@@ -69,8 +69,6 @@ pub const NCP_ERROR_BASE: i32 = 0xEA0000;
 /// End of the NCP error code range (`kWPANTUNDStatus_NCPError_Last`).
 pub const NCP_ERROR_END: i32 = 0xEAFFFF;
 
-const _: () = assert!(NCP_ERROR_END >= NCP_ERROR_BASE);
-
 /// NCP error mask (`WPANTUND_NCPERROR_MASK` from `wpan-error.h:77`).
 pub const NCP_ERROR_MASK: i32 = 0xFFFF;
 

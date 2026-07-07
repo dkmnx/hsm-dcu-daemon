@@ -9,11 +9,12 @@
 sudo make install    # requires sudo for /usr/local
 ```
 
-### Rust (wisun-types crate, phase 1A of porting)
+### Rust (Cargo workspace, phases 1A+)
 
 ```bash
-cd wisun-types && cargo test && cargo clippy
-cd wisun-types && cargo fmt --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --check
 ```
 
 ### CI (GitHub Actions)
@@ -28,7 +29,8 @@ sudo make install
 - **C/C++**: Uncrustify enforced (`.uncrustify.cfg`).
   Do not manually format C code.
 - **Rust**: `cargo fmt` + `cargo clippy -- -D warnings`
-  enforced via `[lints]` in `wisun-types/Cargo.toml`.
+  enforced via `[workspace.lints]` in the root
+  `Cargo.toml` (crates opt in with `lints.workspace = true`).
 - **JS (webapp only)**: ESLint + Prettier in
   `ti-wisun-webapp/`. Webapp is NOT being ported.
 - Property key constants must match D-Bus wire format
@@ -47,7 +49,8 @@ src/dcuctl/         CLI control tool
 src/ipc-dbus/       D-Bus API server
 src/ncp-dummy/      Template for new NCP plugins
 src/util/           Serial/socket utilities
-wisun-types/        Rust port: foundational types
+crates/wisun-types/ Rust port: foundational types
+crates/spinel/      Rust port: Spinel protocol codec
 ```
 
 See `doc/rust-porting/README.md` for the full Rust
@@ -57,9 +60,9 @@ porting plan, crate architecture, and dependency map.
 
 - C: `strlcpy_test`/`strlcat_test` + 2 fuzz harnesses
   under `etc/fuzz-corpus/`
-- Rust: `cargo test` in `wisun-types/` — 41 tests
-  covering round-trip conversions, error codes,
-  property keys
+- Rust: `cargo test --workspace` from the repo root
+  (wisun-types: round-trip conversions, error codes,
+  property keys; spinel: frame/HDLC/pack codec)
 - Integration: OpenThread `toranj` tests (requires NCP
   hardware or mock)
 - No hardware dependency for Rust CI (all types are
@@ -72,7 +75,7 @@ porting plan, crate architecture, and dependency map.
 - `connman-plugin/` — optional, deferred from porting
 - `third_party/openthread/` — vendored OpenThread,
   do not modify
-- `wisun-types/target/` — Rust build artifacts,
+- `/target/` — shared Rust workspace build artifacts,
   gitignored. Never commit.
 - NCP wire protocol (Spinel) must stay
   binary-compatible with TI CC13xx firmware
@@ -85,8 +88,8 @@ porting plan, crate architecture, and dependency map.
   See `doc/rust-porting/` for per-phase specs.
 - **Property key constants**: Defined once via
   `declare_property_keys!` macro in
-  `wisun-types/src/property_key.rs`. Add new properties
+  `crates/wisun-types/src/property_key.rs`. Add new properties
   in the macro invocation, not separately.
 - **No unsafe in Rust crates** except `dcu-tun`
   (ioctl) and `dcu-serial` (serial port) — enforced
-  by `[lints]` section.
+  by `[workspace.lints]` (overridden per-crate where needed).

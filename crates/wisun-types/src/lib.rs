@@ -16,7 +16,7 @@ mod property_key;
 pub mod command;
 
 // Re-exports
-pub use error::WpanError;
+pub use error::{NCP_ERROR_BASE, NCP_ERROR_END, NCP_ERROR_MASK, WpanError};
 pub use ncp_state::NcpState;
 pub use ncp_state::ParseNcpStateError;
 pub use network_config::ChannelMask;

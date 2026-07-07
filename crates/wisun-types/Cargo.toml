@@ -6,9 +6,5 @@ rust-version = "1.85"
 
 [dependencies]
 
-[lints.rust]
-unsafe_code = "deny"
-warnings = "deny"
-
-[lints.clippy]
-all = "deny"
+[lints]
+workspace = true

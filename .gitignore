@@ -94,3 +94,9 @@ Android.mk
 /etc/android
 aminclude_static.am
 doxygen.cfg
+
+# Tool-generated
+.mimocode/
+
+# Rust workspace
+target/
