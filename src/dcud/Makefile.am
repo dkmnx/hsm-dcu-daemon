@@ -43,7 +43,7 @@ if ENABLE_FUZZ_TARGETS
 noinst_PROGRAMS = wpantund-fuzz
 else
 sysconf_DATA = wpantund.conf
-sbin_PROGRAMS = wfantund
+sbin_PROGRAMS = dcud
 pkginclude_HEADERS = \
 	wpan-properties.h \
 	wpan-error.h \
@@ -117,38 +117,38 @@ $(top_builddir)/$(subdir)/version.c: ../version.c.in Makefile
 SOURCES += $(top_builddir)/$(subdir)/version.c
 
 
-wfantund_SOURCES = wpantund.cpp $(SOURCES)
+dcud_SOURCES = wpantund.cpp $(SOURCES)
 
-wfantund_LDADD = $(MISSING_LIBADD) $(DBUS_LIBS)
-wfantund_LDADD += ../ipc-dbus/libwpantund-dbus.la
+dcud_LDADD = $(MISSING_LIBADD) $(DBUS_LIBS)
+dcud_LDADD += ../ipc-dbus/libwpantund-dbus.la
 
 if STATIC_LINK_NCP_PLUGIN
-wfantund_LDADD += ../ncp-@default_ncp_plugin@/libncp-@default_ncp_plugin@.la
+dcud_LDADD += ../ncp-@default_ncp_plugin@/libncp-@default_ncp_plugin@.la
 else
-wfantund_LDADD += $(LIBDL_LIBS)
-wfantund_LDFLAGS = @EXPORT_DYNAMIC_LDFLAGS@
+dcud_LDADD += $(LIBDL_LIBS)
+dcud_LDFLAGS = @EXPORT_DYNAMIC_LDFLAGS@
 endif
 
-wfantund_CPPFLAGS = -D_DEFAULT_SOURCE -D_XOPEN_SOURCE -D_XOPEN_SOURCE_EXTENDED -D_POSIX_C_SOURCE=200112L $(AM_CPPFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CPPFLAGS)
-wfantund_CXXFLAGS = $(AM_CXXFLAGS) $(BOOST_CXXFLAGS) $(CODE_COVERAGE_CXXFLAGS)
-wfantund_CFLAGS = $(AM_CFLAGS)
+dcud_CPPFLAGS = -D_DEFAULT_SOURCE -D_XOPEN_SOURCE -D_XOPEN_SOURCE_EXTENDED -D_POSIX_C_SOURCE=200112L $(AM_CPPFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CPPFLAGS)
+dcud_CXXFLAGS = $(AM_CXXFLAGS) $(BOOST_CXXFLAGS) $(CODE_COVERAGE_CXXFLAGS)
+dcud_CFLAGS = $(AM_CFLAGS)
 
-wfantund_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
-wfantund_CXXFLAGS += $(CODE_COVERAGE_CXXFLAGS)
-wfantund_CFLAGS += $(CODE_COVERAGE_CFLAGS)
-wfantund_LDADD += $(CODE_COVERAGE_LIBS)
+dcud_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
+dcud_CXXFLAGS += $(CODE_COVERAGE_CXXFLAGS)
+dcud_CFLAGS += $(CODE_COVERAGE_CFLAGS)
+dcud_LDADD += $(CODE_COVERAGE_LIBS)
 
 if APPEND_NETWORK_TIME_RECEIVED_MONOTONIC_TIMESTAMP
-wfantund_LDADD += -l:libboost_system.a -l:libboost_chrono.a
-wfantund_CPPFLAGS += -DUSE_BOOST_CHRONO_MONOTONIC_TIME=1
+dcud_LDADD += -l:libboost_system.a -l:libboost_chrono.a
+dcud_CPPFLAGS += -DUSE_BOOST_CHRONO_MONOTONIC_TIME=1
 endif
 
-wfantund_fuzz_SOURCES = wpantund-fuzz.cpp $(SOURCES)
+dcud_fuzz_SOURCES = wpantund-fuzz.cpp $(SOURCES)
 
-wfantund_fuzz_LDADD = $(MISSING_LIBADD)
-wfantund_fuzz_LDADD += ../ncp-@default_ncp_plugin@/libncp-@default_ncp_plugin@-fuzz.la
-wfantund_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(FUZZ_CPPFLAGS) $(CODE_COVERAGE_CPPFLAGS)
-wfantund_fuzz_CXXFLAGS = $(BOOST_CXXFLAGS) $(FUZZ_CXXFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CXXFLAGS)
-wfantund_fuzz_CFLAGS = $(FUZZ_CFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CFLAGS)
-wfantund_fuzz_LDADD += $(CODE_COVERAGE_LIBS) $(FUZZ_LIBS)
-wfantund_fuzz_LDFLAGS = $(AM_LDFLAGS) $(FUZZ_LDFLAGS)
+dcud_fuzz_LDADD = $(MISSING_LIBADD)
+dcud_fuzz_LDADD += ../ncp-@default_ncp_plugin@/libncp-@default_ncp_plugin@-fuzz.la
+dcud_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(FUZZ_CPPFLAGS) $(CODE_COVERAGE_CPPFLAGS)
+dcud_fuzz_CXXFLAGS = $(BOOST_CXXFLAGS) $(FUZZ_CXXFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CXXFLAGS)
+dcud_fuzz_CFLAGS = $(FUZZ_CFLAGS) $(DBUS_CFLAGS) $(CODE_COVERAGE_CFLAGS)
+dcud_fuzz_LDADD += $(CODE_COVERAGE_LIBS) $(FUZZ_LIBS)
+dcud_fuzz_LDFLAGS = $(AM_LDFLAGS) $(FUZZ_LDFLAGS)

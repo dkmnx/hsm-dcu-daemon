@@ -1,12 +1,12 @@
-wfantund, Userspace Wireless Field Area Network (WFAN) Network Daemon
+dcud, Userspace Wireless Field Area Network (WFAN) Network Daemon
 ======================================================================
 
 
-`wfantund` is derived from `wpantund` which was written and developed by
+`dcud` is derived from `wpantund` which was written and developed by
 Nest Labs to make supporting [Thread](http://threadgroup.org)
 connectivity on Unix-like operating systems more straightforward.
 
-`wfantund` is a user-space network interface driver/daemon that
+`dcud` is a user-space network interface driver/daemon that
 provides a native IPv6 network interface to TI Wi-SUN FAN Border Router
 operating in Network Processor (NWP) mode. 
 
@@ -29,13 +29,13 @@ solution. Reference cross compilation support has been provided for TI AM64x SK 
 (https://www.ti.com/tool/SK-AM64).
 
 
-`wfantund` is designed to marshall all access to the NCP, ensuring
+`dcud` is designed to marshall all access to the NCP, ensuring
 that it always remains in a consistent and well-defined state.
 
 ## License ##
 
-`wfantund` is based on `wpantund`.
-`wfantund` is open-source software released under the [Apache License,
+`dcud` is based on `wpantund`.
+`dcud` is open-source software released under the [Apache License,
 Version 2.0][1]. See the file [`LICENSE`][2] for more information.
 
 Unless required by applicable law or agreed to in writing, software
@@ -49,23 +49,23 @@ limitations under the License.
 
 ## Linux Host + Embedded RCP EA Release
 
-Please refer to the readme in the `linux-host` folder for instructions on using the new Linux Host functionality for increased network sizes! Otherwise continue along with this readme for more info on wfantund and steps for the previous version of wfantund, which still works like before.
+Please refer to the readme in the `linux-host` folder for instructions on using the new Linux Host functionality for increased network sizes! Otherwise continue along with this readme for more info on dcud and steps for the previous version of dcud, which still works like before.
 
 ##
 
 ## Compilation and Installation ##
 
 ### Linux OS (Ubuntu) Support ###
-Refer to Install.md for compiling and installing `wfantund` and `wfanctl` 
+Refer to Install.md for compiling and installing `dcud` and `dcuctl` 
 in Ubuntu Linux OS.
 
 ### Embedded Linux OS Support ###
-Refer to Install_AM64x_sk.md for cross-compiling and installing `wfantund` and `wfanctl` 
+Refer to Install_AM64x_sk.md for cross-compiling and installing `dcud` and `dcuctl` 
 for TI AM64x SK (https://www.ti.com/tool/SK-AM64).
 
 ## Usage Overview ##
 
-The behavior of `wfantund` is determined by its configuration
+The behavior of `dcud` is determined by its configuration
 parameters, which may be specified in a configuration file (typically
 `/etc/wpantund.conf`) or at the command line. A typical configuration
 file might look like that shown below. For a more thorough explanation
@@ -83,13 +83,13 @@ of available configuration parameters, see the [included example][3].
     # plugin must support the NCP you are trying to use.
     Config:NCP:DriverName         "spinel"
 
-### Configuring and monioring wfantund using TI's webserver (Recommended) ###
+### Configuring and monioring dcud using TI's webserver (Recommended) ###
 
 TI's webserver application has been provided in the `/ti-wisun-webapp` folder. This application allows the user to easily configure the border router, monitor the health of the network, and build other applications on top of it.
 
 **Note: Make sure to follow the installation instructions in the ti-wisun-webapp README.md for the correct npm/node versions**
 
-This application automatically starts wfantund on detecting the border router device.
+This application automatically starts dcud on detecting the border router device.
 
 For more information, go to `/ti-wisun-webapp/README.md`
 
@@ -104,35 +104,35 @@ For more information, go to `/ti-wisun-webapp/README.md`
 * The webserver application can be visualized using any standard webbrowser to display the Wi-SUN FAN network as a graph
 * The webserver is designed to be a foundation that higher level applications can be developed on top of
 
-### Configuring wfantund using wfanctl (Alternate) ###
+### Configuring dcud using dcuctl (Alternate) ###
 
-To use `wfanctl`, first start wfantund:
+To use `dcuctl`, first start dcud:
 
-    sudo /usr/local/sbin/wfantund -o Config:NCP:SocketPath `<Serial Port>`
-    example: sudo /usr/local/sbin/wfantund -o Config:NCP:SocketPath /dev/ttyACM0
+    sudo /usr/local/sbin/dcud -o Config:NCP:SocketPath `<Serial Port>`
+    example: sudo /usr/local/sbin/dcud -o Config:NCP:SocketPath /dev/ttyACM0
 
-When up and running, you can use `wfanctl` to get or set TI Wi-SUN FAN Parameters
+When up and running, you can use `dcuctl` to get or set TI Wi-SUN FAN Parameters
 
-To start wfanctl use
-```
-   $ sudo /usr/local/bin/wfanctl 
+To start dcuctl use
+```bash
+   $ sudo /usr/local/bin/dcuctl 
 ```
 You can also pass in the specific interface name using the -I option when connecting
 to an interface with a non-default name
-```
-   $ sudo /usr/local/bin/wfanctl -I wfan0
+```bash
+   $ sudo /usr/local/bin/dcuctl -I wfan0
 ```
 To get/set properties use the get/set command.
 
 example:
-```
-   wfanctl:wfan0> get panid
+```text
+   dcuctl:wfan0> get panid
    0xABCD
 ```
 
 The status of TI Wi-SUN Border Router along with some other related information like the daemon version can be obtained using the `status` command
-```
-wfanctl:wfan0> status
+```text
+dcuctl:wfan0> status
 wfan0 => [
 	"NCP:State" => "offline"
 	"Daemon:Enabled" => true
@@ -147,14 +147,14 @@ wfan0 => [
 _For detailed list of all supported TI Wi-SUN FAN Command, please refer to `ti_wisun_commands.md`_
 
 The interface and stack can be started using the following command:
-```
-wfanctl:wfan0> set interface:up true
+```text
+dcuctl:wfan0> set interface:up true
 ```
 This brings up the stack interface and starts the NCP network stack.
 
 Status of Interface can be checked by using the status command.
-```
-wfanctl:wfan0> status
+```text
+dcuctl:wfan0> status
 wfan0 => [
 	"NCP:State" => "associated"
 	"Daemon:Enabled" => true
@@ -168,26 +168,26 @@ wfan0 => [
 ```
 Note: `associated` in TI WI-SUN FAN Context implies that the TI Wi-SUN FAN Border Router has started.
 
-### Checking wfantund daemon version ###
-To check the version of wfantund currently installed, run `wfantund --version`.
-```
-> wfantund --version
-wfantund 1.00.07 (0.07.01-397-g1f99dae-dirty; Dec 30 2024 19:47:08)
+### Checking dcud daemon version ###
+To check the version of dcud currently installed, run `dcud --version`.
+```bash
+> dcud --version
+dcud 1.00.07 (0.07.01-397-g1f99dae-dirty; Dec 30 2024 19:47:08)
 ```
 
-When wfantund is already running, you can also check the daemon version in wfanctl using the `status` command.
+When dcud is already running, you can also check the daemon version in dcuctl using the `status` command.
 
 ### Enabling host to embedded device IP communication
 
-By default, wfantund will assign the created interface the same IP address as the device it
+By default, dcud will assign the created interface the same IP address as the device it
 is connected to. This means that traffic from the host destined to this address will be routed
 to the loopback interface instead of physically going out to the device. Wfantund can instead
 be configured to use its own unique IP address for the interface, allowing traffic to go freely to 
 and from the embedded device. To enable this option, uncomment the `IPv6:WfantundGlobalAddress` option 
-from wpandtund.conf or pass in the option on the command line when starting wfantund. 
+from wpandtund.conf or pass in the option on the command line when starting dcud. 
 
 The default `IPv6:WfantundGlobalAddress` is `2020:ABCD::/64`, which will create a route for any packets 
-destined to an address prefixed with `2020:ABCD:0000:0000` out via the wfantund interface. When using default 
+destined to an address prefixed with `2020:ABCD:0000:0000` out via the dcud interface. When using default 
 settings on the internal DHCP server on the border router or the external DHCP server detailed below, addresses 
 given out will match this pattern. If you change away from this default prefix, keep in mind you may need to either 
 update the addresses given out to nodes in the Wi-SUN network to use your new prefix, or manually create routes out 
@@ -195,14 +195,14 @@ through the interface. Prefix sizes other than `/64` are not currently supported
 
 ### Using external Authentication and/or DHCPv6 Servers ###
 
-The embedded border router project can be configured to route authentication and DHCP traffic up through wfantund.
+The embedded border router project can be configured to route authentication and DHCP traffic up through dcud.
 To actually handle this traffic, two example servers are provided via Docker under the `external-servers`folder. 
 Refer to the readme there to see how to configure and start the containers.
 
 ### Using iperf with border router and router node TUN interfaces ###
 
 The iperf bandwidth measurement tool can be used to calculate network throughput via the TUN interfaces created
-by wfantund. It is recommended to use two separate Linux instances to host the border router and router node
+by dcud. It is recommended to use two separate Linux instances to host the border router and router node
 interfaces to prevent loopback issues and ensure packets are routed through to the embedded devices.
 
 For data rates higher than 50kbps, it is recommended to increase the embedded NCP buffer sizes and UART baud rates
@@ -213,16 +213,16 @@ embedded router and border router devices (from TI CC13XX_CC26XX SimpleLink SDK)
 * In wisun_ncp/src/ncp_config.h: Increase CONFIG_NCP_UART_RX_BUFFER_SIZE to 2048
 * In wisun_ncp/platform/uart.c:  In the function otPlatUartEnable, increase params.baudRate to 460800
 
-The following adjustment should be made to wfantund builds:
+The following adjustment should be made to dcud builds:
 * In src/util/socket-utils: Increase gSocketWrapperBaud value to 460800;
 
-### Using wfantund and wfanctl with Wi-SUN router node ###
+### Using dcud and dcuctl with Wi-SUN router node ###
 
-While the Linux webserver can only be used with Wi-SUN border routers, wfantund and wfanctl can also be used
+While the Linux webserver can only be used with Wi-SUN border routers, dcud and dcuctl can also be used
 with Wi-SUN router nodes. Coap nodes cannot be used, only border routers and router nodes, as they are NCP-enabled
 examples while coap node examples are embedded-only.
 
-The steps to using wfantund and wfanctl for router nodes are the same. The only difference is, once the interface
+The steps to using dcud and dcuctl for router nodes are the same. The only difference is, once the interface
 is brought up using `set interface:up true`, the device will remain in the offline state, only transistioning
 to the associated state once the device has joined the network.
 
@@ -237,8 +237,8 @@ When the stack is up, the TUN interface will be enabled. It can be verified by c
 
 ### Checking for connected devices ###
 User can check for connected devices using the connecteddevices property
-```
-   wfanctl:wfan0> get connecteddevices
+```text
+   dcuctl:wfan0> get connecteddevices
    connecteddevices = "
    List of connected devices currently in routing table:
    2020:abcd:0000:0000:0212:4b00:14f7:d102
@@ -261,16 +261,16 @@ Refer to _*http://dev.ti.com/wisunsla*_ for information on compiling out of box 
 
 ## Feature and Architecture Summary ##
 
-`wfantund` based on `wpantund` provides:
+`dcud` based on `wpantund` provides:
 
  *  ... a native IPv6 interface to an NCP.
- *  ... a command line interface (`wfanctl`) for managing and
+ *  ... a command line interface (`dcuctl`) for managing and
     configuring the NCP.
  *  ... a DBus API for managing and configuring the NCP.
  *  ... a way to reliably manage the power state of the NCP.
  *  ... a uniform mechanism for handling NCP firmware updates.
 
-The architecture and design of `wfantund` is based on `wpantund` which
+The architecture and design of `dcud` is based on `wpantund` which
 has been motivated by the following design goals (in no specific order):
 
  *  Portability across Unix-like operating systems (currently supports
@@ -281,7 +281,7 @@ has been motivated by the following design goals (in no specific order):
  *  Power efficiency (0% CPU usage when idle)
  *  Allow management interface to be used by multiple independent
     applications simultaneously
- *  Allow multiple instances of `wfantund` to gracefully co-exist on a
+ *  Allow multiple instances of `dcud` to gracefully co-exist on a
     single machine
  *  Modular, plugin-based architecture (all details for communicating
     with a specific NCP stack are implemented as plugins)
@@ -299,12 +299,12 @@ The following NCP plugins are provided:
 
 ## Conceptual Overview ##
 
-`wfantund` is based on `wpantund` and is conceptually similar in purpose to the point-to-point
+`dcud` is based on `wpantund` and is conceptually similar in purpose to the point-to-point
 daemon (`pppd`, commonly used on Unix platforms to provide network
 connectivity via a dial-up modems) except that instead of communicating
-with a dial-up modem, `wfantund` is communicating with an NCP.
+with a dial-up modem, `dcud` is communicating with an NCP.
 
-`wfantund` communicates with the NCP via an abstraction of a
+`dcud` communicates with the NCP via an abstraction of a
 asynchronous stream socket, which could be any of the following:
 
  *  A real serial port (UART) connected to the NCP (preferably with
@@ -317,23 +317,23 @@ asynchronous stream socket, which could be any of the following:
 Unlike a dial-up modem, NCPs often have a rich management interface
 for performing operations, such as forming a network, joining a
 network, scanning for nearby networks, etc. To perform these operations,
-`wfantund` includes a command line utility called `wfanctl`.
+`dcud` includes a command line utility called `dcuctl`.
 Applications that need to directly configure the network interface can
-also communicate directly with `wfantund` using its DBus API.
+also communicate directly with `dcud` using its DBus API.
 
 To expose a native IPv6 network interface to the host operating
-system, `wfantund` uses the `tun` driver on Linux. On Linux, the
+system, `dcud` uses the `tun` driver on Linux. On Linux, the
 default name for the interface is `wfan0`.
 
 
 
 
-If compiled with `libreadline` or `libedit`, `wfanctl` supports an
+If compiled with `libreadline` or `libedit`, `dcuctl` supports an
 convenient interactive console. All commands support online help: type
 `help` to get a list of supported commands, or add `-h` to a command to get
 help with that specific command.
 
-[3]: ./src/wpantund/wpantund.conf
+[3]: ./src/dcud/dcud.conf
 
 ## Support ##
 
@@ -342,7 +342,7 @@ Submit bugs and feature requests to https://e2e.ti.com/support/wireless-connecti
 ## Authors and Contributors ##
 
 The following people have significantly contributed to the design
-and development of `wfantund`:
+and development of `dcud`:
 Texas Instruments Inc
 
 `wpantund` Authors

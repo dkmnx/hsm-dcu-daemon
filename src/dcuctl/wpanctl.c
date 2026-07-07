@@ -287,12 +287,12 @@ get_current_prompt()
 	if (!gInterfaceName[0]) {
 		snprintf(prompt,
 		         sizeof(prompt),
-		         "wfanctl> "
+		         "dcuctl> "
 		         );
 	} else {
 		snprintf(prompt,
 		         sizeof(prompt),
-		         "wfanctl:%s> ",
+		         "dcuctl:%s> ",
 		         gInterfaceName
 		         );
 	}
@@ -353,7 +353,7 @@ bail:
 static void
 print_version()
 {
-	printf("wfanctl " PACKAGE_VERSION );
+	printf("dcuctl " PACKAGE_VERSION );
 	if ((internal_build_source_version[0] == 0) || strequal(SOURCE_VERSION, internal_build_source_version)) {
 		if (strequal(PACKAGE_VERSION, SOURCE_VERSION)) {
 			printf(" (%s)\n", internal_build_date);

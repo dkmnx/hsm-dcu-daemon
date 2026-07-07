@@ -30,4 +30,4 @@ After building, the `wisun-rcp-host-br` and `wisun-rcp-host-rn` binaries can be 
 
 ### External DHCPv6 / RADIUS Server Support
 
-`wisun-rcp-host-br` can be configured to run with external DHCPv6 or RADIUS server support by modifying the `border_router_host.cfg` file. We provide example configurations for dnsmasq and FreeRADIUS in the `external-servers` folder of the wfantund repo.
+`wisun-rcp-host-br` can be configured to run with external DHCPv6 or RADIUS server support by modifying the `border_router_host.cfg` file. We provide example configurations for dnsmasq and FreeRADIUS in the `external-servers` folder of the dcud repo.

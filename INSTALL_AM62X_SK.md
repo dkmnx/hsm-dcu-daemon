@@ -1,9 +1,9 @@
-# `wfantund` Installation Guide on TI AM62x
+# `dcud` Installation Guide on TI AM62x
 
-`wfantund` is derived from `wpantund` and modified to meet the needs of TI Wi-SUN FAN Solution.
+`dcud` is derived from `wpantund` and modified to meet the needs of TI Wi-SUN FAN Solution.
 
 This document describes the process of building and installing
-`wfantund` on the TI AM62x EVM (https://www.ti.com/tool/SK-AM62B-P1). Note that this guide assumes you'll be running everything directly on your host OS, not through Docker. 
+`dcud` on the TI AM62x EVM (https://www.ti.com/tool/SK-AM62B-P1). Note that this guide assumes you'll be running everything directly on your host OS, not through Docker. 
 
 ## AM62x Linux Development Environment Setup
 
@@ -72,20 +72,20 @@ The `setup_AM62x_fileSystem.sh` sets up the run configuration directories with a
 ti-wisun-webapp on boot.
 
 If the nodes do not join as expected after _~5-7 minutes_ one can
-restart wfantund as follows:
+restart dcud as follows:
 
 - Simply unplug and replug the Wi-SUN Border Router NWP device.
 
-  - It will trigger restart wfantund execution from the webapp
+  - It will trigger restart dcud execution from the webapp
   - Remember to restart the nodes as the Border Router will be re-started
 
 ## Cross Compiling for AM62x
 
-The setup_AM62x_fileSystem.sh script performs the following cross compilation steps for wfantund and lib-coap. The steps are provided here for reference.
+The setup_AM62x_fileSystem.sh script performs the following cross compilation steps for dcud and lib-coap. The steps are provided here for reference.
 
 ### Wfantund compiling & setup instructions
 
-From `wfantund` base folder:
+From `dcud` base folder:
 
 ```
 #Set the toolchain & other cross-compile environment by using SDK environment setup
@@ -103,7 +103,7 @@ make clean
 # cross compile
 sudo --preserve-env=PATH make
 
-# Install the compiled wfantund and wfanctl to the "target's root file system"
+# Install the compiled dcud and dcuctl to the "target's root file system"
 sudo make DESTDIR=<SDK_PATH>/targetNFS install
 ```
 

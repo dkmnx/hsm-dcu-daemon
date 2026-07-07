@@ -163,7 +163,7 @@ int tool_cmd_join(int argc, char* argv[])
 					"\nuse `-n` to force the argument to be parsed as <network-name>"
 					"\ninstead of <index of a previously scanned network>\n\n",
 					argv[0], scanned_network_index, gScannedNetworkCount);
-				ret - ERRORCODE_BADARG;
+				ret = ERRORCODE_BADARG;
 				goto bail;
 			}
 

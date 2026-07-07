@@ -30,6 +30,7 @@
 #include "wpan-dbus.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 const char getprop_cmd_syntax[] = "[args] <property-name>";
 
@@ -41,7 +42,7 @@ static const arg_list_item_t getprop_option_list[] = {
 };
 
 #define MAX_CONNECTED_DEVICES 1000
-#define TMP_CONNECTED_DEVICES_FILENAME "wfanctl_connected_devices_output.txt"
+#define TMP_CONNECTED_DEVICES_FILENAME "dcuctl_connected_devices_output.txt"
 char* connected_devices[MAX_CONNECTED_DEVICES] = {NULL};
 FILE *connected_devices_fp;
 
@@ -79,12 +80,20 @@ bool parse_connected_devices_output(void)
 
 			const char firstChar = line[0];
 			// If firstChar is a digit, the line being read is an IP address
-			if( firstChar >= '0' && firstChar <= '9' ) {
+			if( (firstChar >= '0' && firstChar <= '9') ||
+			    (firstChar >= 'a' && firstChar <= 'f') ||
+			    (firstChar >= 'A' && firstChar <= 'F') ) {
+				// Strip newline before storing
+				size_t line_len = strlen(line);
+				if (line_len > 0 && line[line_len - 1] == '\n') {
+					line[line_len - 1] = '\0';
+				}
 				add_to_connected_devices_array(line); // line == connected_device IP
 			}
 		}
 		fclose(connected_devices_fp);
 	}
+	free(line);
 	return find_more_devices;
 }
 
@@ -283,6 +292,11 @@ int tool_cmd_getprop(int argc, char *argv[])
 						}
 						fprintf(stdout, "\nNumber of connected devices: %d\n\"\n", index);
 						// Reset the connected_devices_array and remove temp output file since get connecteddevices is complete
+						for (int i = 0; i < MAX_CONNECTED_DEVICES; i++) {
+							if (connected_devices[i] != NULL) {
+								free(connected_devices[i]);
+							}
+						}
 						memset(connected_devices, '\0', MAX_CONNECTED_DEVICES);
 						remove(TMP_CONNECTED_DEVICES_FILENAME);
 					}

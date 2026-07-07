@@ -736,7 +736,7 @@ unpack_dodag_route(const uint8_t *data_in, spinel_size_t data_len, boost::any& v
 	std::string last_ip_str = "";
 	for (int x = 1; x < DODAG_ROUTE_SIZE*(path_cost + 1); x+=2){
 
-		char str_to_add[4];
+		char str_to_add[5];
 		sprintf(str_to_add, "%02x", entry_ptr[x]);
 		// we want to grab the last ip address in the list, 17 to 32
 		if(((16*(path_cost)) < x) && (x < ((16*(path_cost + 1)))))
@@ -805,13 +805,13 @@ unpack_dodag_route_dest(const uint8_t *data_in, spinel_size_t data_len, boost::a
 	std::string ret_str = "";
 
 	for (int x = 0; x < DODAG_ROUTE_SIZE - 2; x+=2){
-		char str_to_add[4];
+		char str_to_add[5];
 		sprintf(str_to_add, "%02x", entry_ptr[x]);
 		ret_str.append(str_to_add);
 		sprintf(str_to_add, "%02x:", entry_ptr[x + 1]);
 		ret_str.append(str_to_add);
 	}
-	char str_to_add[4];
+	char str_to_add[5];
 	sprintf(str_to_add, "%02x", entry_ptr[DODAG_ROUTE_SIZE - 2]);
 	ret_str.append(str_to_add);
 	sprintf(str_to_add, "%02x", entry_ptr[DODAG_ROUTE_SIZE - 1]);
@@ -874,12 +874,12 @@ unpack_connected_devices(const uint8_t *data_in, spinel_size_t data_len, boost::
 
 		if ((x + 1) % 16 == 0){
 			if (x == 0){
-				char str_to_add[4];
+				char str_to_add[5];
 				sprintf(str_to_add, "%02x", entry_ptr[count]);
 				print_str.append(str_to_add);
 			}
 			else{
-				char str_to_add[4];
+				char str_to_add[5];
 				sprintf(str_to_add, "%02x", entry_ptr[count]);
 				print_str.append(str_to_add);
 				print_str.append("\n");
@@ -888,13 +888,13 @@ unpack_connected_devices(const uint8_t *data_in, spinel_size_t data_len, boost::
 		else{
 			if (x % 2 != 0){
 				// x is odd
-				char str_to_add[4];
+				char str_to_add[5];
 				sprintf(str_to_add, "%02x:", entry_ptr[count]);
 				print_str.append(str_to_add);
 			}
 			else{
 				// x is even
-				char str_to_add[4];
+				char str_to_add[5];
 				sprintf(str_to_add, "%02x", entry_ptr[count]);
 				print_str.append(str_to_add);
 			}
@@ -5760,7 +5760,7 @@ SpinelNCPInstance::handle_ncp_spinel_value_is(spinel_prop_key_t key, const uint8
 		std::string ret = "";
 
 		for (int x = 0; x < DODAG_ROUTE_SIZE/2; x+=2){
-			char str_to_add[4];
+			char str_to_add[5];
 			sprintf(str_to_add, "%02x", entry_ptr[x]);
 			ret.append(str_to_add);
 			sprintf(str_to_add, "%02x:", entry_ptr[x + 1]);
@@ -5888,7 +5888,7 @@ SpinelNCPInstance::handle_ncp_spinel_value_is(spinel_prop_key_t key, const uint8
 		std::string ret = "";
 
 		for (int x = 0; x < (len - 1); x++){
-			char str_to_add[4];
+			char str_to_add[5];
 			sprintf(str_to_add, "%02x:", entry_ptr[x]);
 			ret.append(str_to_add);
 		}
@@ -5914,7 +5914,7 @@ SpinelNCPInstance::handle_ncp_spinel_value_is(spinel_prop_key_t key, const uint8
 		std::string ret = "";
 
 		for (int x = 0; x < (len - 1); x++){
-			char str_to_add[4];
+			char str_to_add[5];
 			sprintf(str_to_add, "%02x:", entry_ptr[x]);
 			ret.append(str_to_add);
 		}
@@ -5940,7 +5940,7 @@ SpinelNCPInstance::handle_ncp_spinel_value_is(spinel_prop_key_t key, const uint8
 		std::string ret = "";
 
 		for (int x = 0; x < (len - 1); x++){
-			char str_to_add[4];
+			char str_to_add[5];
 			sprintf(str_to_add, "%02x:", entry_ptr[x]);
 			ret.append(str_to_add);
 		}
@@ -5965,7 +5965,7 @@ SpinelNCPInstance::handle_ncp_spinel_value_is(spinel_prop_key_t key, const uint8
 		std::string ret = "";
 
 		for (int x = 0; x < (len - 1); x++){
-			char str_to_add[4];
+			char str_to_add[5];
 			sprintf(str_to_add, "%02x:", entry_ptr[x]);
 			ret.append(str_to_add);
 		}

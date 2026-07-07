@@ -454,7 +454,7 @@ SpinelNCPInstance::vprocess_init(int event, va_list args)
 		GetInstance(this)->mOutboundBufferLen = spinel_cmd_prop_value_get(GetInstance(this)->mOutboundBuffer, sizeof(GetInstance(this)->mOutboundBuffer), SPINEL_PROP_PROTOCOL_VERSION);
 		CONTROL_REQUIRE_OUTBOUND_BUFFER_FLUSHED_WITHIN(NCP_DEFAULT_COMMAND_SEND_TIMEOUT, on_error);
 #ifndef TI_WISUN_FAN
-		/* Known Issue: Junk Char Observed at start of wfantund */		
+		/* Known Issue: Junk Char Observed at start of dcud */		
 		CONTROL_REQUIRE_COMMAND_RESPONSE_WITHIN(NCP_DEFAULT_COMMAND_RESPONSE_TIMEOUT, on_error);
 #endif
 
@@ -531,7 +531,7 @@ SpinelNCPInstance::vprocess_init(int event, va_list args)
 					props_to_fetch[mSubPTIndex].property);
 				CONTROL_REQUIRE_OUTBOUND_BUFFER_FLUSHED_WITHIN(NCP_DEFAULT_COMMAND_SEND_TIMEOUT, on_error);
 #ifndef TI_WISUN_FAN
-				/* Known Issue: Junk Char Observed at start of wfantund */
+				/* Known Issue: Junk Char Observed at start of dcud */
 				CONTROL_REQUIRE_COMMAND_RESPONSE_WITHIN(NCP_DEFAULT_COMMAND_RESPONSE_TIMEOUT, on_error);
 #endif
 
@@ -573,7 +573,7 @@ SpinelNCPInstance::vprocess_init(int event, va_list args)
 
 				CONTROL_REQUIRE_OUTBOUND_BUFFER_FLUSHED_WITHIN(NCP_DEFAULT_COMMAND_SEND_TIMEOUT, on_error);
 #ifndef TI_WISUN_FAN
-				/* Known Issue: Junk Char Observed at start of wfantund */
+				/* Known Issue: Junk Char Observed at start of dcud */
 				CONTROL_REQUIRE_COMMAND_RESPONSE_WITHIN(NCP_DEFAULT_COMMAND_RESPONSE_TIMEOUT, on_error);
 #endif
 

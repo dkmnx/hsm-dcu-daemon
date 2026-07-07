@@ -8,7 +8,7 @@ Specifically, the `start-ti-wisun-webapp.sh` script will be executed each time
 the system reboots, starting the <u>ti-wisun-webapp</u> on the
 port specified _(defaulting to port 8035)_.
 Also, the <u>ti-wisun-webapp</u>
-automatically starts wfantund when a device is connected to the
+automatically starts dcud when a device is connected to the
 serial port specified _(defaulting to
 /dev/ttyACM0)_.
 

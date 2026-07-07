@@ -31,10 +31,10 @@ include $(top_srcdir)/pre.am
 DISTCLEANFILES = .deps Makefile
 
 if !ENABLE_FUZZ_TARGETS
-bin_PROGRAMS = wfanctl
+bin_PROGRAMS = dcuctl
 endif
 
-wfanctl_SOURCES = \
+dcuctl_SOURCES = \
 	wpanctl.c \
 	wpanctl-cmds.h \
 	../util/config-file.c \
@@ -120,12 +120,12 @@ wfanctl_SOURCES = \
 	tool-updateprop.h \
 	$(NULL)
 
-wfanctl_LDADD = \
+dcuctl_LDADD = \
 	$(DBUS_LIBS) \
 	$(LIBREADLINE_LIBS) \
 	$(NULL)
 
-wfanctl_CPPFLAGS = \
+dcuctl_CPPFLAGS = \
 	$(AM_CPPFLAGS) \
 	$(DBUS_CFLAGS) \
 	$(LIBREADLINE_CPPFLAGS) \
@@ -135,7 +135,7 @@ wfanctl_CPPFLAGS = \
 SOURCE_VERSION=$(shell git describe --dirty --always --match "[0-9].*" 2> /dev/null)
 BUILT_SOURCES  = $(top_builddir)/$(subdir)/version.c
 CLEANFILES = $(top_builddir)/$(subdir)/version.c
-.INTERMEDIATE: wfanctl-version.$(OBJEXT)
+.INTERMEDIATE: dcuctl-version.$(OBJEXT)
 $(top_builddir)/$(subdir)/version.c: ../version.c.in Makefile
 	sed 's/SOURCE_VERSION/"$(SOURCE_VERSION)"/' < $< > $@
-wfanctl_SOURCES += $(top_builddir)/$(subdir)/version.c
+dcuctl_SOURCES += $(top_builddir)/$(subdir)/version.c

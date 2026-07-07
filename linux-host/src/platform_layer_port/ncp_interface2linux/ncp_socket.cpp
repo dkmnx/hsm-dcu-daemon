@@ -140,7 +140,7 @@ NcpSocket::NcpSocket(Instance *aInstance, int serverPort, bool useIpv6):
         exit(1);
     }
 
-    // add frame added callback handler, used for sending out frames to wfantund
+    // add frame added callback handler, used for sending out frames to dcud
     mTxFrameBuffer.SetFrameAddedCallback(HandleFrameAddedToNcpBuffer, this);
 
     // Create the server socket
@@ -216,11 +216,11 @@ void NcpSocket::HandleFrameAddedToNcpBuffer(void)
 }
 
 /**
- * Accepts client connections and receives data from the connected wfantund client. This function
+ * Accepts client connections and receives data from the connected dcud client. This function
  * runs in its own thread context and passes the received data to the DecodeMessage function via
  * the NCP Tasket, to ensure that the context stays the same as the rest of the Nanostack.
  * 
- * If the wfantund connection is dropped / broken, the thread will accept a new connection, ensuring
+ * If the dcud connection is dropped / broken, the thread will accept a new connection, ensuring
  * the application doesn't need to be restarted.
  */
 void* NcpSocket::thread_func(void *arg)

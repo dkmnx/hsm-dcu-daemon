@@ -5,14 +5,14 @@ in-progress.
 
 ## General Cleanup/Refactoring Tasks
 
-Not all DBus commands are currently used in `wfanctl`. However, the most prominent
+Not all DBus commands are currently used in `dcuctl`. However, the most prominent
 commands are implemented (get, set, status...)
 
 ## Security Tasks
 
 Since WPAN Tunnel Driver communicates directly with the dangerous
 uncontrolled real-world, additional hardening is warranted. The
-following tasks are important for hardening `wfantund` from malicious foes:
+following tasks are important for hardening `dcud` from malicious foes:
 
 - Investigate ways to harden the process by Limiting kernel attackable
   surface-area by using a syscall filter like [`libseccomp`](https://github.com/seccomp/libseccomp).

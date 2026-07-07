@@ -162,7 +162,7 @@ static arg_list_item_t option_list[] = {
 
 static int gRet;
 
-static const char* gProcessName = "wfantund";
+static const char* gProcessName = "dcud";
 static const char* gPIDFilename = NULL;
 static const char* gChroot = WPANTUND_DEFAULT_CHROOT_PATH;
 
@@ -433,7 +433,7 @@ nl::wpantund::get_wpantund_version_string(void)
 static void
 print_version()
 {
-	printf("wfantund %s\n", get_wpantund_version_string().c_str() );
+	printf("dcud %s\n", get_wpantund_version_string().c_str() );
 }
 
 /* ------------------------------------------------------------------------- */

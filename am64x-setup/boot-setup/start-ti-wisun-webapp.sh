@@ -1,5 +1,5 @@
 # This script starts the ti-wisun-webapp, which will automatically
-# start wfantund once a device is connected to the specified serial port
+# start dcud once a device is connected to the specified serial port
 # with --serial-port or (/dev/ttyACM0 by default) and run the webserver
 # on the specified port (8035)
 
