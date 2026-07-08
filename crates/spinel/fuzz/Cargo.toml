@@ -1,0 +1,18 @@
+[package]
+name = "spinel-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+spinel = { path = ".." }
+
+[[bin]]
+name = "spinel_frame_fuzz"
+path = "fuzz_targets/spinel_frame_fuzz.rs"
+test = false
+doc = false

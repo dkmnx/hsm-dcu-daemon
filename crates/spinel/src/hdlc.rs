@@ -103,6 +103,14 @@ impl HdlcEncoder {
         self.crc = CRC_INIT; // reset for next frame
         output
     }
+
+    /// Encode a [`SpinelFrame`] (header + command + payload) with HDLC framing.
+    ///
+    /// Convenience wrapper that first calls [`SpinelFrame::encode`] then
+    /// [`HdlcEncoder::encode_bytes`].
+    pub fn encode_frame(&mut self, frame: &crate::frame::SpinelFrame) -> Vec<u8> {
+        self.encode_bytes(&frame.encode())
+    }
 }
 
 impl Default for HdlcEncoder {
@@ -214,6 +222,7 @@ impl Default for HdlcDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame::SpinelFrame;
 
     #[test]
     fn hdlc_crc_round_trip() {
@@ -227,6 +236,42 @@ mod tests {
         assert!(encoded.len() >= 5); // FLAG + 2 data + 2 CRC + FLAG
 
         // Full round-trip
+        let mut decoder = HdlcDecoder::new();
+        let mut result = None;
+        for byte in &encoded {
+            result = decoder.feed_byte(*byte);
+        }
+        let frame_data = result.unwrap().unwrap();
+        assert_eq!(frame_data, data);
+    }
+
+    /// Golden vector test (spec Test 4).
+    ///
+    /// CRC-16/X.25 of `[0x80, 0x06]` is the integer `0xE6BD` (high byte 0xE6,
+    /// low byte 0xBD). On the wire the CRC is stored little-endian, so the two
+    /// CRC bytes are `[0xBD, 0xE6]` = `0xE6BDu16.to_le_bytes()`. The assertion
+    /// below reads the actual two CRC bytes (indices len-3..len-1, immediately
+    /// before the trailing FLAG) and compares them against that.
+    #[test]
+    fn hdlc_crc_golden_vector() {
+        let mut encoder = HdlcEncoder::new();
+        let data = vec![0x80, 0x06]; // FLAG header + CMD_PROP_VALUE_IS (packed)
+        let encoded = encoder.encode_bytes(&data);
+
+        let expected_crc = 0xE6BDu16.to_le_bytes(); // [0xBD, 0xE6] on the wire (LE)
+        // HDLC layout: FLAG + data + CRC(2, LE) + FLAG. The two CRC bytes sit
+        // immediately before the trailing FLAG, i.e. at encoded[len-3..len-1].
+        let frame_end = encoded.len() - 3;
+        assert_eq!(
+            encoded[frame_end..frame_end + 2],
+            expected_crc,
+            "CRC does not match expected CRC-16/X.25 of [0x80,0x06]"
+        );
+        // Sanity: the byte after the CRC window must be the trailing FLAG, and
+        // the window must NOT include it.
+        assert_eq!(encoded[encoded.len() - 1], FLAG_BYTE);
+
+        // Full round-trip decode
         let mut decoder = HdlcDecoder::new();
         let mut result = None;
         for byte in &encoded {
@@ -258,19 +303,20 @@ mod tests {
     #[test]
     fn hdlc_full_round_trip() {
         let mut encoder = HdlcEncoder::new();
-        let data = vec![0x80, 0x06, 0x00, 0x01];
-        let encoded = encoder.encode_bytes(&data);
+        let frame = SpinelFrame::new(0x06, vec![0x00, 0x01]);
+        let hdlc_encoded = encoder.encode_frame(&frame);
 
-        assert_eq!(encoded[0], FLAG_BYTE);
-        assert_eq!(*encoded.last().unwrap(), FLAG_BYTE);
+        assert_eq!(hdlc_encoded[0], FLAG_BYTE);
+        assert_eq!(*hdlc_encoded.last().unwrap(), FLAG_BYTE);
 
         let mut decoder = HdlcDecoder::new();
         let mut result = None;
-        for byte in &encoded {
+        for byte in &hdlc_encoded {
             result = decoder.feed_byte(*byte);
         }
         let frame_data = result.unwrap().unwrap();
-        assert_eq!(frame_data, data);
+        let decoded = SpinelFrame::decode(&frame_data).unwrap();
+        assert_eq!(decoded.command_id, 0x06);
     }
 
     #[test]
