@@ -44,46 +44,77 @@ dcu-daemon/
     ├── main.rs                 # Entry point, signal handling
     ├── config.rs               # Config file parser
     ├── instance/
-    │   ├── mod.rs
-    │   ├── base.rs             # NCPInstanceBase: state machine, task queue
-    │   ├── addresses.rs        # IPv6 address management
-    │   ├── net_interface.rs    # TUN interface lifecycle
-    │   └── async_io.rs         # Async I/O pumps
+    │   ├── mod.rs              # NcpInstance wrapper (public API)
+    │   ├── base.rs             # NcpInstanceBase: state machine, event loop
+    │   ├── addresses.rs        # IPv6 address management (not yet)
+    │   ├── net_interface.rs    # TUN interface lifecycle (not yet)
+    │   └── async_io.rs         # Async I/O pumps (not yet)
     ├── tasks/
-    │   ├── mod.rs              # Task trait + queue
+    │   ├── mod.rs              # Task trait + MockTask
     │   ├── queue.rs            # Task queue management
     │   └── backoff.rs          # RunawayResetBackoffManager
-    ├── stat_collector.rs       # Network statistics
-    ├── network_retain.rs       # Persistent network config
-    ├── pcap.rs                 # Packet capture
+    ├── stat_collector.rs       # Network statistics (not yet)
+    ├── network_retain.rs       # Persistent network config (not yet)
+    ├── pcap.rs                 # Packet capture (not yet)
     ├── firmware_upgrade.rs     # NCP firmware update
-    ├── event.rs                # Event system (replaces protothreads)
-    └── control_interface.rs    # Control interface dispatch
+    ├── event.rs                # Event system (deleted; Notify inline in base.rs)
+    └── control_interface.rs    # Command validation (stub)
 ```
 
-### Open spec gaps (must be filled before implementation)
+### Implementation Status
 
-- **`SpinelTask` trait + `MockTask` are undefined.** `NcpInstanceBase`
-  (`current_task: Option<Box<dyn SpinelTask>>`), `TaskQueue::push`, and Test 2
-  all depend on them. The trait needs at minimum `async fn run(&mut self)`
-  and a `name() -> &str` (Test 2 calls `.name()`). Define it in
-  `tasks/mod.rs`.
-- **`event.rs` is named but never specified.** The protothread->async
-  conversion uses `tokio::sync::Notify` / `CancellationToken` ad hoc (see the
-  conversion patterns above); `event.rs` should define the `Notify` handles
-  the state machine waits on (e.g. `state_changed`, `busy_changed`), not a
-  bespoke event enum.
-- **`stat_collector.rs` (1737 LOC), `network_retain.rs`, `pcap.rs`,
-  `control_interface.rs`** are one-liners with no API. `control_interface.rs`
-  overlaps with the already-built `dcu-dbus` property/command dispatch — the
-  spec must state the split: D-Bus *serialization* lives in `dcu-dbus`;
-  `control_interface.rs` maps `dcu_dbus::commands::Command` onto
-  `NcpInstanceBase` operations (the D-Bus server only *produces* commands).
-- **`addresses.rs` is far simpler than `NCPInstanceBase-Addresses.cpp`
-  (1332 LOC).** The C file manages unicast/multicast addresses, on-mesh
-  prefixes, off-mesh routes, and services with origins (NCP/interface/user),
-  SLAAC, and lifetimes. The five-method stub must be expanded to cover at
-  least on-mesh prefix + route entry management, or scoped down explicitly.
+**Scaffold complete (commit 2d24fe3 + follow-up fixes):** `Cargo.toml`, `main.rs`,
+`lib.rs`, `config.rs`, `error.rs`, `tasks/` (mod, queue, backoff), `instance/` (mod, base),
+`firmware_upgrade.rs`, `control_interface.rs` all exist, compile, and pass clippy + 12 tests.
+
+| Module                 | Status      | Notes                                                              |
+| ---------------------- | ----------- | ------------------------------------------------------------------ |
+| `main.rs`              | Done        | Dual SIGINT/SIGTERM, clap args, DbusServer::start, event loop      |
+| `config.rs`            | Done        | 20+ keys, shell quoting, bool parsing, 7 unit tests                |
+| `error.rs`             | Done        | DaemonError with From impls for all sub-crate errors               |
+| `instance/base.rs`     | Done (stub) | State machine shell: run loop awaits cancel/commands/state_changed |
+| `instance/mod.rs`      | Done        | NcpInstance wrapper with shared_state/command_sender               |
+| `tasks/mod.rs`         | Done        | SpinelTask trait + MockTask                                        |
+| `tasks/queue.rs`       | Done        | FIFO TaskQueue, 2 tests                                            |
+| `tasks/backoff.rs`     | Done        | Windowed quadratic backoff, 1 test                                 |
+| `firmware_upgrade.rs`  | Done        | Direct exec via shell_words::split, drop shell wrapper, 2 tests    |
+| `control_interface.rs` | Stub        | validate_command is a no-op (filled in phase 3B)                   |
+| `addresses.rs`         | Not yet     | IPv6 route/prefix management (phase 3B)                            |
+| `async_io.rs`          | Not yet     | NCP↔driver data pump (phase 3A continuation)                       |
+| `net_interface.rs`     | Not yet     | TUN lifecycle wiring (phase 3A continuation)                       |
+| `stat_collector.rs`    | Not yet     | Network statistics (deferred past 3A)                              |
+| `network_retain.rs`    | Not yet     | Persistent config (deferred past 3A)                               |
+| `pcap.rs`              | Not yet     | Packet capture (deferred past 3A)                                  |
+| `event.rs`             | Deleted     | Replaced by inline Notify slots in base.rs                         |
+
+### Resolved spec gaps
+
+The open gaps from the original draft have been resolved during implementation:
+
+- **`SpinelTask` trait + `MockTask`** — defined in `tasks/mod.rs` with `async fn run`
+  and `fn name()`. TaskQueue::push and Test 2 use them.
+- **`event.rs`** — the file was deleted. The protothread→async conversion uses
+  inline `tokio::sync::Notify` slots (state_changed, busy_changed, data_available)
+  directly on `NcpInstanceBase`. No bespoke EventSlots wrapper needed.
+- **`control_interface.rs`** — split clarified: D-Bus serialization stays in
+  `dcu-dbus`; `control_interface.rs` is a placeholder for state-aware command
+  validation (e.g. reject Form if already associated). Validation logic deferred
+  to phase 3B when actual task dispatch exists.
+
+### Remaining spec gaps (deferred)
+
+- **`addresses.rs`** — still far simpler than `NCPInstanceBase-Addresses.cpp`
+  (1332 LOC). Unicast/multicast/on-mesh-prefix/off-mesh-route/service management
+  with origins, SLAAC, lifetimes must be implemented, likely in phase 3B.
+- **`stat_collector.rs`, `network_retain.rs`, `pcap.rs`** — one-line stubs with
+  no API. Underspecified; defer to post-3A.
+- **Config→firmware wiring** — `firmware_check_command` / `firmware_upgrade_command`
+  are parsed into Config but not yet passed to the firmware functions. This
+  requires the auto-update flow in the state machine (phase 3B).
+- **`dcu-mock`** — required for integration tests 5–7 (phase 4A).
+- **D-Bus `Command::Form`/`Join`/etc.** — `handle_command` currently handles
+  only `Reset` and `Leave`; all others return `"unhandled"`. Task dispatch for
+  the full command set is phase 3B.
 
 ## Protothread → Async Conversion
 
@@ -700,35 +731,38 @@ dcu-tun = { path = "../dcu-tun" }
 dcu-serial = { path = "../dcu-serial" }
 dcu-dbus = { path = "../dcu-dbus" }
 tokio = { version = "1", features = ["full"] }
-# CancellationToken is unconditionally available in tokio_util::sync
-# (no feature gate; only `context`/`task` are gated behind "rt").
-tokio-util = { version = "0.7" }
+tokio-util = { version = "0.7", features = ["time"] }
+clap = { version = "4", features = ["derive"] }
+async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "2"
-clap = { version = "4", features = ["derive"] }   # argv parsing for --config / -c
+shell-words = "1"
 
 [dev-dependencies]
-dcu-mock = { path = "../dcu-mock" }   # provides PtyPair, MockNcpInstance, setup_mock_instance()
-tempfile = "3"
+
+[lints]
+workspace = true
 ```
 
-> **Note:** `nix` is NOT a daemon-core dependency. Signal handling uses
-> `tokio::signal` (see `main.rs`). `serde`/`bytes` are unused here (config is
-> a custom parser, not TOML; the buffer type is `Vec<u8>`/`bytes::BytesMut`
-> only inside `spinel`). Dropping them keeps `cargo clippy -- -D warnings`
-> honest about unused crates.
+> **Notes:**
+> - `nix` is NOT a daemon-core dependency. Signal handling uses `tokio::signal`.
+> - `serde`/`bytes` are unused here (config is a custom parser, not TOML).
+> - `CancellationToken` is unconditionally available in `tokio_util::sync`; no feature gate needed.
+> - `shell-words` is used by `firmware_upgrade.rs` for safe command splitting.
+> - `dcu-mock` and `tempfile` are not declared — they will be added in phase 4A when integration tests exist.
 
 ## Verification Checklist
 
-- [ ] Daemon starts, creates TUN interface, responds to signals
-- [ ] All protothread patterns converted to async (grep for no remaining `PT_` references)
-- [ ] Config file parsing handles all known config keys (incl. `HardResetPath`, `PowerPath`, `FirmwareCheckCommand`, `FirmwareUpgradeCommand`, `NCP:TXPower`, `NCP:CCAThreshold`, `Daemon:SyslogMask`, and the `system:`/`serial:`/`TCP` `SocketPath` conventions)
-- [ ] State machine handles all transitions from `doc/wpan-dbus-protocol.md`
-- [ ] Task queue processes tasks in order
-- [ ] Runaway reset backoff: windowed count + quadratic delay `(count-4)²/2`, no delay under threshold
-- [ ] Firmware upgrade via `tokio::process::Command` with the configured command string
-- [ ] Graceful exit on SIGINT/SIGTERM
-- [ ] `cargo test` passes
-- [ ] `cargo clippy` produces zero warnings
-- [ ] `unsafe` only in `dcu-tun`/`dcu-serial` (ioctl/serial); this crate has none — `firmware_upgrade.rs` uses `tokio::process::Command`, not `fork()`
+- [x] Config file parsing handles all known config keys (incl. `HardResetPath`, `PowerPath`, `FirmwareCheckCommand`, `FirmwareUpgradeCommand`, `NCP:TXPower`, `NCP:CCAThreshold`, `Daemon:SyslogMask`, and the `system:`/`serial:`/`TCP` `SocketPath` conventions)
+- [x] Task queue processes tasks in order (2 tests)
+- [x] Runaway reset backoff: windowed count + quadratic delay `(count-4)²/2`, no delay under threshold (1 test)
+- [x] Firmware upgrade via `tokio::process::Command` with direct exec (no `sh -c`, uses `shell_words::split`)
+- [x] Graceful exit via `CancellationToken` on SIGINT or SIGTERM
+- [x] `cargo test` passes (12 tests)
+- [x] `cargo clippy` produces zero warnings
+- [x] `unsafe` only in `dcu-tun`/`dcu-serial` (ioctl/serial); this crate has none
+- [ ] Daemon starts, creates TUN interface, responds to signals (requires integration test)
+- [ ] State machine handles all transitions from `doc/wpan-dbus-protocol.md` (requires task dispatch — phase 3B)
+- [ ] Config→firmware wiring: Config values passed to firmware functions (phase 3B)
+- [ ] All protothread patterns converted to async (grep for no remaining `PT_` references — phase 3A continuation)

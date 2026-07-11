@@ -1,0 +1,26 @@
+[package]
+name = "dcu-daemon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+# Hoisted deps from workspace root.
+[dependencies]
+wisun-types = { path = "../wisun-types" }
+spinel = { path = "../spinel" }
+dcu-tun = { path = "../dcu-tun" }
+dcu-serial = { path = "../dcu-serial" }
+dcu-dbus = { path = "../dcu-dbus" }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { version = "0.7", features = ["time"] }
+clap = { version = "4", features = ["derive"] }
+async-trait = "0.1"
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+thiserror = { workspace = true }
+shell-words = "1"
+
+[dev-dependencies]
+
+[lints]
+workspace = true
