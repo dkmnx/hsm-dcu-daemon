@@ -2,94 +2,122 @@
 
 ## Overview
 
-Port all Spinel NCP tasks to the `EventDrivenTask` trait used by the phase 3A daemon core.
-Tasks are **event sinks**: they receive `NcpEvent` from the dispatcher and return `TaskProgress`
-to indicate whether they are done, yielding, or awaiting a child task.
+Port all Spinel NCP tasks. The C codebase uses protothreads (`EH_BEGIN`/`EH_SPAWN`/`EH_END`)
+because C has no coroutines. **Rust has async/await**, so the protothread machinery is eliminated.
 
-## Architecture (matching the implemented code)
+In Rust, every NCP operation is an **async free function** (or method on `NcpInstanceBase`):
 
-The daemon's event-driven task model already exists in `dispatcher/mod.rs`:
+```rust
+async fn leave(ncp: &NcpInstanceBase) -> Result<(), SpinelError> {
+    ncp.send_prop_set(PROP_NET_STACK_UP, false).await?;
+    ncp.send_prop_set(PROP_NET_IF_UP, false).await?;
+    ncp.send_cmd(NET_CLEAR).await?;
+    ncp.send_cmd(RESET).await?;
+    ncp.wait_for_state(|s| s == Init).await?;
+    Ok(())
+}
+```
 
-- **`NcpEvent`** — typed enum (`FrameReceived(SpinelFrame)`, `Alarm(AlarmId)`, `Starting`)
-- **`EventDrivenTask`** — trait with `start()`, `process_event()`, `finish()`
-- **`TaskProgress`** — `Yield`, `YieldWithFrames(Vec<SpinelFrame>)`, `Done(i32)`,
-  `AwaitingChild(Box<dyn EventDrivenTask>, Vec<SpinelFrame>)`
-- **`SendCommandTask`** — sends one command, matches response by TID (not full header byte)
+No enum state machines, no `process_event`, no `TaskProgress`, no `finish` callback.
+The C protothread `EH_BEGIN`/`EH_WAIT_UNTIL`/`EH_SPAWN` → tokio `select!` + `await`.
 
-| Aspect             | C (`SpinelNCPTaskSendCommand`)                                             | Rust (implemented)                                                  |
-| ------------------ | -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Send model         | `mOutboundBuffer` + flush + wait (synchronous protothread)                 | `instance.enqueue_outbound_frame(frame)` + TID match (event-driven) |
-| TID allocation     | `SPINEL_GET_NEXT_TID(mLastTID)` on instance, wraps at 15                   | `static AtomicU8` per task type, wraps at 15                        |
-| Response matching  | Full header byte `mInboundHeader == mLastHeader`                           | TID only (`frame.tid() == self.tid`)                                |
-| Lock property      | `EH_SPAWN` two commands around the main list (set true → list → set false) | Not yet implemented                                                 |
-| Multi-command list | `while (mCommandIter != mCommandList.end())`                               | Single command only (to be extended)                                |
+## Architecture
 
-## Implemented (committed in phase 3A)
+```text
+Serial (UART/PTY)
+    │  bytes
+    ▼
+DataPump (separate tokio task)
+    │  SpinelFrame
+    ▼
+mpsc::UnboundedSender<SpinelFrame>
+    │
+    ├── NcpInstanceBase::run()  (receives unsolicited frames, dispatches properties)
+    │
+    └── Per-command response channels
+            Each async task sends a frame with a TID, then awaits on a
+            TID-indexed slot for the matching response:
+                send(TID=5, CMD).await;
+                let resp = recv(TID=5).await;
+                process(resp);
+```
 
-- **`dispatcher/mod.rs`** — `NcpEvent`, `EventDrivenTask`, `TaskProgress`, `AlarmId`
-- **`dispatcher/data_pump.rs`** — `DataPump`: reads bytes from any `Transport`, feeds `HdlcDecoder`,
-  sends `NcpEvent::FrameReceived` into an `mpsc::UnboundedSender`
-- **`tasks/send_command.rs`** — `SendCommandTask`: sends one command with a TID, waits for
-  matching response by TID, stashes the response frame for `finish()`
-- **`instance/base.rs`** — event loop with `dispatch_event()`/`schedule_next_task()`,
-  `outbound_queue: VecDeque<SpinelFrame>`, `enqueue_outbound_frame()`, `event_pump_tx()`,
-  `mock_for_testing()` for unit tests
+### Key differences from C (protothreads) and from the earlier EventDrivenTask design
 
-## Remaining tasks to port (this phase)
+| Aspect          | C protothreads                                          | Earlier Rust (discarded)                                                | Rust async/await (current)                                       |
+| --------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| State machine   | `EH_BEGIN`/`EH_WAIT_UNTIL`/`EH_END` macros              | `EventDrivenTask` trait with `process_event()` returning `TaskProgress` | Straight async functions with `?`                                |
+| Command sending | `mNextCommand` copy → `EH_SPAWN(vprocess_send_command)` | `SendCommandTask` (struct + trait impl)                                 | `send_frame(frame)` → await matching TID                         |
+| TID matching    | `mInboundHeader == mLastHeader`                         | `frame.tid() == self.tid`                                               | Same, via shared TID response table                              |
+| NCP events      | Flat `u32` with `IS_EVENT_FROM_NCP` mask                | `enum NcpEvent`                                                         | `SpinelFrame` over channels                                      |
+| Dispatcher      | `vprocess_event` chain, task scheduler                  | `dispatch_event()`/`schedule_next_task()` on `NcpInstanceBase`          | No dispatcher needed — `run()` only processes unsolicited frames |
 
-All follow the same `EventDrivenTask` pattern. Each protothread in C becomes a Rust struct
-with an enum state machine and `start()`/`process_event()`/`finish()`.
+## What to keep from the existing code
 
-| Task file (C)                           | Built by   | Complexity   | Notes                                                |
-| --------------------------------------- | ---------- | ------------ | ---------------------------------------------------- |
-| `SpinelNCPTaskSendCommand.cpp`          | ✅ Done     | 410 LOC      | Single command, TID match, stashed response          |
-| `SpinelNCPTaskScan.cpp`                 | ❌          | ~250 LOC     | Send CMD_SCAN, collect results until CMD_SCAN_DONE   |
-| `SpinelNCPTaskForm.cpp`                 | ❌          | ~250 LOC     | Sequence of PROP_VALUE_SET + CMD_FORM, channel retry |
-| `SpinelNCPTaskJoin.cpp`                 | ❌          | ~200 LOC     | Set credentials + CMD_JOIN, wait for state change    |
-| `SpinelNCPTaskLeave.cpp`                | ❌          | ~100 LOC     | Send CMD_LEAVE, wait for state change                |
-| `SpinelNCPTaskDeepSleep.cpp`            | ❌          | ~200 LOC     | Enter low-power mode                                 |
-| `SpinelNCPTaskWake.cpp`                 | ❌          | ~100 LOC     | Wake from deep sleep                                 |
-| `SpinelNCPTaskHostDidWake.cpp`          | ❌          | ~80 LOC      | Notify NCP host woke                                 |
-| `SpinelNCPTaskGetNetworkTopology.cpp`   | ❌          | ~300 LOC     | Request routing table                                |
-| `SpinelNCPTaskGetMsgBufferCounters.cpp` | ❌          | ~100 LOC     | Request buffer stats                                 |
-| `SpinelNCPTaskPeek.cpp`                 | ❌          | ~80 LOC      | Peek at NCP memory                                   |
-| `SpinelNCPTaskJoinerCommissioning.cpp`  | ❌          | ~200 LOC     | Joiner flow                                          |
+- **`DataPump`** (`dispatcher/data_pump.rs`) — reads bytes, decodes HDLC, produces frames. The pump task pushes `SpinelFrame` into an `mpsc::UnboundedSender` that `NcpInstanceBase` owns. Keep as-is.
 
-## Enhancements to existing `SendCommandTask` (before building more tasks)
+- **`SendCommandTask`** (`tasks/send_command.rs`) — the request/response matching by TID is a utility, not a trait. Instead of the `EventDrivenTask` trait, expose a free async function:
 
-The current `SendCommandTask` handles only a single command. The C `SpinelNCPTaskSendCommand`
-supports:
+```rust
+/// Send a frame to the NCP and await the matching response by TID.
+/// The TID is allocated from the instance's shared counter.
+async fn send_command(
+    instance: &mut NcpInstanceBase,
+    command_id: u32,
+    payload: Vec<u8>,
+) -> Result<SpinelFrame, DaemonError>
+{
+    let tid = instance.allocate_tid();
+    let frame = SpinelFrame::with_header(make_header(0, tid), command_id, payload);
+    instance.send_frame(frame).await;
+    instance.await_response(tid).await
+}
+```
 
-1. **Command list iteration** — `Factory::add_command()` chains multiple commands. Each
-   is sent sequentially, sharing the same TID. `process_event` advances through the list.
-2. **Lock property** — before the list, send `PROP_VALUE_SET(ALLOW_LOCAL_NET_DATA_CHANGE, true)`;
-   after the list (even on error), send `PROP_VALUE_SET(ALLOW_LOCAL_NET_DATA_CHANGE, false)`.
-3. **Reply unpacker** — the final response is decoded by a custom `ReplyUnpacker` callback.
-4. **Check handler** — after the list, yield until `mCheckHandler() == true` (or timeout).
+- **TID allocation** — instance-scoped atomic counter wrapping 1..15 (already correct in `send_command.rs`).
 
-These should be added to `SendCommandTask` before implementing the specific tasks that
-depend on them (Scan, Form, Join all use `SendCommandTask` via `Factory`).
+- **`NcpInstanceBase::run()`** — the event loop. Remove `dispatch_event()`/`schedule_next_task()`. Instead, it owns the response table and dispatches incoming frames either to a waiting task's response slot or to the unsolicited handler.
 
-## Tests
+- **`enqueue_outbound_frame()`** — replace with an `mpsc` channel to the `DataPump` (or direct write if the pump polls a queue). The pump drains this channel and writes bytes to the serial transport.
 
-- **send_command_matches_response_by_tid** — start, receive matching TID, assert Done
-- **send_command_ignores_wrong_tid** — start, receive wrong TID, assert Yield
-- **send_command_times_out** — start, receive Alarm with matching ID, assert Done(TIMEOUT)
+## What to remove (dead code)
 
-Remaining: command list iteration, lock property, reply unpacker, check handler.
+- `EventDrivenTask` trait — entirely replaced by `async fn`
+- `TaskProgress` enum — replaced by `Result`
+- `NcpEvent` enum — replaced by `SpinelFrame` over channels
+- `dispatch_event()` — deleted
+- `schedule_next_task()` — deleted
+- `TaskQueue` over `EventDrivenTask` — keep as `VecDeque<Box<dyn Future>>` if queuing is needed, or drop entirely
+- `AlarmId` — use `tokio::time::sleep` in async tasks
+- `AwaitingChild` — use `tokio::spawn` + `JoinHandle`
+- `DataPump::run` signature — takes a `mpsc::Sender<SpinelFrame>` instead of `mpsc::UnboundedSender<NcpEvent>`
+
+## Remaining tasks (async functions)
+
+Each C `SpinelNCPTask*.cpp` file becomes an async function. The C's `EH_SPAWN(&mSubPT, vprocess_send_command(...))` becomes `.await` on `send_command()`. The C's `EH_WAIT_UNTIL` becomes `tokio::select!` or polling.
+
+| Operation            | C file                                  | Async function                                      | Notes                                                                                    |
+| -------------------- | --------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Send command         | `SpinelNCPTaskSendCommand.cpp`          | `send_command()` utility                            | Sequential command lists via loop. Lock property via helper.                             |
+| Scan                 | `SpinelNCPTaskScan.cpp`                 | `async fn scan(ncp, params) -> Vec<ScanResult>`     | Send `CMD_SCAN`, collect results until `CMD_SCAN_DONE` or timeout.                       |
+| Form                 | `SpinelNCPTaskForm.cpp`                 | `async fn form(ncp, params) -> Result`              | Sequence: `PROP_VALUE_SET` × N → `CMD_FORM` → wait for `Associated`. Channel retry loop. |
+| Join                 | `SpinelNCPTaskJoin.cpp`                 | `async fn join(ncp, params) -> Result`              | Similar to Form but `CMD_JOIN` + credentials.                                            |
+| Leave                | `SpinelNCPTaskLeave.cpp`                | `async fn leave(ncp) -> Result`                     | `NET_STACK_UP(false)` → `NET_IF_UP(false)` → `NET_CLEAR` → `RESET` → wait for init.      |
+| DeepSleep            | `SpinelNCPTaskDeepSleep.cpp`            | `async fn deep_sleep(ncp) -> Result`                | Send `NOOP`, wait for quiet, `PROP_MCU_POWER_STATE(LOW_POWER)`.                          |
+| Wake                 | `SpinelNCPTaskWake.cpp`                 | `async fn wake(ncp) -> Result`                      | `PROP_MCU_POWER_STATE(ON)` or `NOOP` + wait for `!sleeping`.                             |
+| HostDidWake          | `SpinelNCPTaskHostDidWake.cpp`          | `async fn host_did_wake(ncp, tickle) -> Result`     | Wait for init completion, optional `NOOP`.                                               |
+| GetTopology          | `SpinelNCPTaskGetNetworkTopology.cpp`   | `async fn get_topology(ncp) -> Vec<Node>`           | Send `CMD_NET_TOPOLOGY_GET`, decode response.                                            |
+| GetMsgBufferCounters | `SpinelNCPTaskGetMsgBufferCounters.cpp` | `async fn get_buffer_counters(ncp) -> Counters`     | Send `PROP_VALUE_GET(MSG_BUFFER_COUNTERS)`, decode.                                      |
+| Peek                 | `SpinelNCPTaskPeek.cpp`                 | `async fn peek(ncp, addr, count) -> Vec<u8>`        | Send `CMD_PEEK`, await `PEEK_RET`.                                                       |
+| JoinerCommissioning  | `SpinelNCPTaskJoinerCommissioning.cpp`  | `async fn joiner_commission(ncp, params) -> Result` | Several PROP_VALUE_SET + `CMD_JOINER_COMMISSION`.                                        |
 
 ## Verification Checklist
 
-- [ ] `SendCommandTask` iterates command list (matching C `while (mCommandIter != mCommandList.end())`)
-- [ ] Lock property set/unset wraps the command sequence (C `mLockProperty != 0` branch)
-- [ ] Reply unpacker extracts one value from final response
-- [ ] Check handler + timeout (C `mCheckTimeout != 0` branch) yields until condition is true
-- [ ] Scan task: sends CMD_SCAN, collects scan results until CMD_SCAN_DONE or timeout
-- [ ] Form task: sequences PROP_VALUE_SET commands → CMD_FORM → wait for Associated
-- [ ] Join task: sets credentials via PROP_VALUE_SET → CMD_JOIN → wait for Associated
-- [ ] Leave task: CMD_LEAVE → state transition
-- [ ] DeepSleep/Wake/HostDidWake tasks ported
-- [ ] GetTopology, GetMsgBufferCounters, Peek tasks ported
-- [ ] JoinerCommissioning task ported
+- [ ] `DataPump` still runs, now feeding `SpinelFrame` (not `NcpEvent`)
+- [ ] Response matching by TID works across concurrent async tasks via shared response table
+- [ ] TID allocated from instance-scoped counter wrapping 1..15
+- [ ] `run()` event loop processes unsolicited frames (property IS, state changes) without blocking response delivery
+- [ ] Each task's C protothread converted to straight async/await with `?`
+- [ ] No remaining `EventDrivenTask`, `TaskProgress`, `NcpEvent`, `dispatch_event`, `schedule_next_task` references
 - [ ] `cargo test` passes
 - [ ] `cargo clippy` produces zero warnings
