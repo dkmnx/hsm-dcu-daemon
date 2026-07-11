@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod control_interface;
+pub mod dispatcher;
 pub mod error;
 pub mod firmware_upgrade;
 pub mod instance;

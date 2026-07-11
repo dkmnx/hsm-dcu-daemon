@@ -1,10 +1,15 @@
 //! FIFO task queue for NCP operations.
+//!
+//! Wraps [`EventDrivenTask`] in a FIFO buffer. This is a convenience struct
+//! layered on top of the instance's own `VecDeque<dyn EventDrivenTask>` — the
+//! instance uses its internal queue directly; this module exists for testing
+//! and for external code that needs to batch tasks before spawning them.
 
-use crate::tasks::SpinelTask;
+use crate::dispatcher::EventDrivenTask;
 
-/// A FIFO queue of Spinel tasks.
+/// A FIFO queue of tasks (wrapping [`EventDrivenTask`]).
 pub struct TaskQueue {
-    pending: Vec<Box<dyn SpinelTask>>,
+    pending: Vec<Box<dyn EventDrivenTask>>,
 }
 
 impl Default for TaskQueue {
@@ -21,12 +26,12 @@ impl TaskQueue {
     }
 
     /// Push a task onto the back of the queue.
-    pub fn push(&mut self, task: Box<dyn SpinelTask>) {
+    pub fn push(&mut self, task: Box<dyn EventDrivenTask>) {
         self.pending.push(task);
     }
 
-    /// Pop the next task from the front. Returns `None` if the queue is empty.
-    pub fn pop(&mut self) -> Option<Box<dyn SpinelTask>> {
+    /// Pop the next task from the front.
+    pub fn pop(&mut self) -> Option<Box<dyn EventDrivenTask>> {
         if self.pending.is_empty() {
             None
         } else {
@@ -53,7 +58,36 @@ impl TaskQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tasks::MockTask;
+    use crate::dispatcher::{EventDrivenTask, NcpEvent, TaskProgress};
+    use crate::instance::base::NcpInstanceBase;
+
+    /// A minimal mock task for testing the queue.
+    #[derive(Debug)]
+    struct MockTask {
+        name: String,
+        should_fail: bool,
+    }
+
+    impl MockTask {
+        fn new(name: impl Into<String>) -> Self {
+            Self { name: name.into(), should_fail: false }
+        }
+    }
+
+    impl EventDrivenTask for MockTask {
+        fn name(&self) -> &str { &self.name }
+        fn start(&mut self, _inst: &NcpInstanceBase) -> TaskProgress {
+            if self.should_fail {
+                TaskProgress::Done(1)
+            } else {
+                TaskProgress::Done(0)
+            }
+        }
+        fn process_event(&mut self, _evt: NcpEvent, _inst: &NcpInstanceBase) -> TaskProgress {
+            TaskProgress::Done(0)
+        }
+        fn finish(self: Box<Self>, _status: i32, _value: Option<Box<dyn std::any::Any + Send>>) {}
+    }
 
     #[test]
     fn task_queue_fifo() {
