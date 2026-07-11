@@ -21,6 +21,24 @@ mod tests {
     use super::*;
     use std::net::Ipv6Addr;
 
+    // -- Pure helper tests (no privileges needed) --
+
+    #[test]
+    fn prefix_len_from_netmask() {
+        // /64: 64 ones
+        let mask: Ipv6Addr = "ffff:ffff:ffff:ffff::".parse().unwrap();
+        assert_eq!(crate::ioctl::prefix_len(mask), 64);
+
+        // /128: all ones
+        let mask: Ipv6Addr = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff".parse().unwrap();
+        assert_eq!(crate::ioctl::prefix_len(mask), 128);
+
+        // /0: zero
+        let mask: Ipv6Addr = Ipv6Addr::UNSPECIFIED;
+        assert_eq!(crate::ioctl::prefix_len(mask), 0);
+    }
+
+    // -- Existing tests --
     #[test]
     #[ignore = "requires /dev/net/tun and CAP_NET_ADMIN"]
     fn tun_device_lifecycle() {

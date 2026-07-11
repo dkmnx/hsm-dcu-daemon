@@ -2,6 +2,13 @@
 resolver = "2"
 members = ["crates/*"]
 
+[workspace.dependencies]
+tracing = "0.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = "1"
+nix = "0.29"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 warnings = "deny"

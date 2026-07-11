@@ -9,7 +9,7 @@ wisun-types = { path = "../wisun-types" }
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"
 zbus = "4"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

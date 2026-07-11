@@ -103,9 +103,16 @@ impl TunnelIPv6Interface {
         ioctl::set_interface_up(&self.netif_fd, self.name(), up)
     }
 
-    /// Read a packet from the TUN device into `buf` (blocking). Returns the
-    /// number of bytes read. A 4-byte protocol-info header (all-zero first
-    /// two bytes) is stripped, matching `TunnelIPv6Interface::read()`.
+    /// Read a packet from the TUN device. Returns the number of bytes read.
+    /// The fd is `O_NONBLOCK` — call this only when the device is known to
+    /// be readable (e.g. after an event-loop readiness notification, or via
+    /// [`Self::async_read_packet`] which gates on readiness).
+    ///
+    /// A 4-byte protocol-info header (all-zero first two bytes) is stripped,
+    /// matching `TunnelIPv6Interface::read()`. With the default
+    /// `IFF_NO_PI` flag this header is never present, so the strip is
+    /// effectively a no-op — it is kept for binary compatibility with the C
+    /// daemon in case `IFF_NO_PI` is ever cleared.
     pub fn read_packet(&self, buf: &mut [u8]) -> Result<usize, TunError> {
         let n = read_fd(self.device.as_raw_fd(), buf)?;
         if n >= 4 && buf[0] == 0 && buf[1] == 0 {

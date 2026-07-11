@@ -83,20 +83,24 @@ impl TunDevice {
         &self.name
     }
 
-    /// Set the interface MTU.
+    /// Set the interface MTU, using a netif-management socket as the C does
+    /// (`netif_mgmt_set_mtu`).
     pub fn set_mtu(&self, mtu: u16) -> Result<(), TunError> {
-        crate::ioctl::set_interface_mtu(self, &self.name, mtu)
+        let netif_fd = crate::ioctl::open_netif_socket()?;
+        crate::ioctl::set_interface_mtu(&netif_fd, &self.name, mtu)
     }
 
     /// Bring the interface up (`true`) or down (`false`). Bringing it down
     /// also clears `IFF_RUNNING`, matching `netif_mgmt_set_up(fd, name, false)`.
     pub fn set_up(&self, up: bool) -> Result<(), TunError> {
-        crate::ioctl::set_interface_up(self, &self.name, up)
+        let netif_fd = crate::ioctl::open_netif_socket()?;
+        crate::ioctl::set_interface_up(&netif_fd, &self.name, up)
     }
 
     /// Returns `true` if the interface is administratively up.
     pub fn is_up(&self) -> Result<bool, TunError> {
-        crate::ioctl::interface_is_up(self, &self.name)
+        let netif_fd = crate::ioctl::open_netif_socket()?;
+        crate::ioctl::interface_is_up(&netif_fd, &self.name)
     }
 
     /// Duplicate the underlying fd (used by the async read/write bridge in

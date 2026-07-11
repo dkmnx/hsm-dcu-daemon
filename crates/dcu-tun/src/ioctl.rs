@@ -334,6 +334,6 @@ fn ipv6_net_of(ifaddr: &InterfaceAddress) -> Option<Ipv6Net> {
 }
 
 /// Compute the prefix length from a netmask address.
-fn prefix_len(mask: Ipv6Addr) -> u8 {
+pub(crate) fn prefix_len(mask: Ipv6Addr) -> u8 {
     mask.octets().iter().map(|b| b.count_ones() as u8).sum()
 }
