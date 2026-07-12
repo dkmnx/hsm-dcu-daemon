@@ -1,0 +1,21 @@
+[package]
+name = "dcu-mock"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[features]
+pty = ["dcu-serial/mock-pty"]
+
+[dependencies]
+spinel = { path = "../spinel" }
+wisun-types = { path = "../wisun-types" }
+dcu-serial = { path = "../dcu-serial" }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

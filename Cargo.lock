@@ -411,6 +411,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcu-mock"
+version = "0.1.0"
+dependencies = [
+ "dcu-serial",
+ "spinel",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "wisun-types",
+]
+
+[[package]]
 name = "dcu-serial"
 version = "0.1.0"
 dependencies = [
