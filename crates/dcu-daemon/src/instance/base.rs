@@ -21,10 +21,100 @@ use crate::config::Config;
 
 const READ_BUF_SIZE: usize = 4096;
 
+/// Returns `true` if `prop` is a dataset *container* property whose
+/// `PROP_VALUE_IS` payload is the full operational dataset (`A(t(iD))` blob).
+///
+/// The inner dataset field keys (DATASET_*, NET_*, PHY_*, ...) are decoded
+/// *from inside* that blob — they are not themselves dataset containers.
+fn is_dataset_prop(prop: u32) -> bool {
+    matches!(
+        prop,
+        spinel::property::PROP_THREAD_ACTIVE_DATASET
+            | spinel::property::PROP_THREAD_PENDING_DATASET
+    )
+}
+
 /// Allocate a TID wrapping 1..=15 (matching `SPINEL_GET_NEXT_TID`).
 fn alloc_tid() -> u8 {
     static NEXT_TID: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
     NEXT_TID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 15 + 1
+}
+
+/// Static variant of dataset decoding for use in the frame-processing task
+/// (operates on cloned `Arc<RwLock<...>>` handles, not `&self`).
+async fn handle_dataset_frame_static(
+    frame: &SpinelFrame,
+    active_dataset: &Arc<RwLock<crate::dataset::OperationalDataset>>,
+    pending_dataset: &Arc<RwLock<crate::dataset::OperationalDataset>>,
+    shared_state: &Arc<RwLock<dcu_dbus::DaemonState>>,
+) -> bool {
+    // Only intercept unsolicited (TID=0) dataset frames. TID-matched
+    // responses must flow through the response table so the awaiting
+    // task receives them.
+    if frame.command_id != spinel::command::CMD_PROP_VALUE_IS || frame.tid() != 0 {
+        return false;
+    }
+    let mut r = spinel::pack::PackReader::new(&frame.payload);
+    let prop = match r.read_uint_packed() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    if !is_dataset_prop(prop) {
+        return false;
+    }
+    let value = match r.read_bytes(r.remaining()) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    match crate::dataset::OperationalDataset::from_spinel_frame(value) {
+        Ok(ds) => {
+            let target = if prop == spinel::property::PROP_THREAD_PENDING_DATASET {
+                pending_dataset
+            } else {
+                active_dataset
+            };
+            *target.write().await = ds;
+            sync_dataset_to_state_static(active_dataset, pending_dataset, shared_state).await;
+            true
+        }
+        Err(e) => {
+            tracing::warn!("Failed to decode operational dataset frame: {e}");
+            // Clear only the dataset being decoded (matches C per-instance clear).
+            let target = if prop == spinel::property::PROP_THREAD_PENDING_DATASET {
+                pending_dataset
+            } else {
+                active_dataset
+            };
+            *target.write().await = Default::default();
+            sync_dataset_to_state_static(active_dataset, pending_dataset, shared_state).await;
+            true
+        }
+    }
+}
+
+/// Static variant that mirrors active/pending datasets into DaemonState.
+async fn sync_dataset_to_state_static(
+    active_dataset: &Arc<RwLock<crate::dataset::OperationalDataset>>,
+    pending_dataset: &Arc<RwLock<crate::dataset::OperationalDataset>>,
+    shared_state: &Arc<RwLock<dcu_dbus::DaemonState>>,
+) {
+    let active = active_dataset.read().await;
+    let pending = pending_dataset.read().await;
+    let mut guard = shared_state.write().await;
+    guard.dataset.clear();
+    // Active dataset fields (Dataset:* keys)
+    for key in crate::dataset::DATASET_PROPERTY_KEYS {
+        if let Some(v) = active.property_string(key) {
+            guard.dataset.insert(key.to_string(), v);
+        }
+    }
+    // Pending dataset fields (Thread:PendingDataset:Dataset:* keys)
+    for key in crate::dataset::DATASET_PROPERTY_KEYS {
+        if let Some(v) = pending.property_string(key) {
+            let pending_key = format!("Thread:PendingDataset:{key}");
+            guard.dataset.insert(pending_key, v);
+        }
+    }
 }
 
 /// Response table — maps TID to a oneshot sender for the awaiting task.
@@ -148,6 +238,19 @@ pub struct NcpInstanceBase {
     /// dropped sender).
     scan_collector: Arc<RwLock<Option<mpsc::UnboundedSender<SpinelFrame>>>>,
 
+    /// Active operational dataset (phase 3C). Updated from
+    /// `PROP_THREAD_ACTIVE_DATASET` Spinel frames.
+    active_dataset: Arc<RwLock<crate::dataset::OperationalDataset>>,
+
+    /// Pending operational dataset (phase 3C). Updated from
+    /// `PROP_THREAD_PENDING_DATASET` Spinel frames.
+    pending_dataset: Arc<RwLock<crate::dataset::OperationalDataset>>,
+
+    /// Shared D-Bus daemon state. The frame task mirrors the live operational
+    /// dataset into `DaemonState.dataset` so `Dataset:*` property reads stay
+    /// current without the D-Bus layer depending on `dcu-daemon` internals.
+    shared_state: Arc<RwLock<dcu_dbus::DaemonState>>,
+
     #[allow(dead_code)]
     config: Config,
 }
@@ -155,7 +258,7 @@ pub struct NcpInstanceBase {
 impl NcpInstanceBase {
     pub async fn new(
         config: Config,
-        _shared_state: Arc<RwLock<dcu_dbus::DaemonState>>,
+        shared_state: Arc<RwLock<dcu_dbus::DaemonState>>,
         command_rx: mpsc::Receiver<dcu_dbus::commands::Command>,
     ) -> Result<Self, DaemonError> {
         // Channels are created in start_pumps() alongside the I/O task.
@@ -176,6 +279,9 @@ impl NcpInstanceBase {
             io_cancel: None,
             scan_collector: Arc::new(RwLock::new(None)),
             frame_task: None,
+            active_dataset: Arc::new(RwLock::new(crate::dataset::OperationalDataset::default())),
+            pending_dataset: Arc::new(RwLock::new(crate::dataset::OperationalDataset::default())),
+            shared_state,
             config,
         })
     }
@@ -209,6 +315,9 @@ impl NcpInstanceBase {
         // responses via the response table.
         let response_table = self.response_table.clone();
         let scan_collector = self.scan_collector.clone();
+        let active_dataset = self.active_dataset.clone();
+        let pending_dataset = self.pending_dataset.clone();
+        let shared_state = self.shared_state.clone();
         let frame_rx = std::mem::replace(&mut self.frame_rx, mpsc::unbounded_channel().1);
         let frame_cancel = cancel.clone();
         self.frame_task = Some(tokio::spawn(async move {
@@ -219,6 +328,12 @@ impl NcpInstanceBase {
                     frame = frame_rx.recv() => {
                         match frame {
                             Some(frame) => {
+                                // Dataset updates are unsolicited (or GET
+                                // responses) and not TID-matched; handle them
+                                // before the response table.
+                                if handle_dataset_frame_static(&frame, &active_dataset, &pending_dataset, &shared_state).await {
+                                    continue;
+                                }
                                 if !response_table.deliver(&frame) {
                                     Self::dispatch_unsolicited_static(&frame, &scan_collector).await;
                                 }

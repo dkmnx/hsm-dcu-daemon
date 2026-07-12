@@ -172,6 +172,36 @@ declare_property_keys![
     (PROP_THREAD_NETWORK_DATA, "Thread:NetworkData"),
     (PROP_THREAD_ACTIVE_DATASET, "Thread:ActiveDataset"),
     (PROP_THREAD_PENDING_DATASET, "Thread:PendingDataset"),
+    // --- Dataset (operational dataset, phase 3C) ---
+    (PROP_DATASET_ACTIVE_TIMESTAMP, "Dataset:ActiveTimestamp"),
+    (PROP_DATASET_PENDING_TIMESTAMP, "Dataset:PendingTimestamp"),
+    (PROP_DATASET_MASTER_KEY, "Dataset:MasterKey"),
+    (PROP_DATASET_NETWORK_NAME, "Dataset:NetworkName"),
+    (PROP_DATASET_EXTENDED_PAN_ID, "Dataset:ExtendedPanId"),
+    (PROP_DATASET_MESH_LOCAL_PREFIX, "Dataset:MeshLocalPrefix"),
+    (PROP_DATASET_DELAY, "Dataset:Delay"),
+    (PROP_DATASET_PAN_ID, "Dataset:PanId"),
+    (PROP_DATASET_CHANNEL, "Dataset:Channel"),
+    (PROP_DATASET_PSKC, "Dataset:PSKc"),
+    (PROP_DATASET_CHANNEL_MASK_PAGE0, "Dataset:ChannelMaskPage0"),
+    (
+        PROP_DATASET_SEC_POLICY_KEY_ROTATION,
+        "Dataset:SecPolicy:KeyRotation"
+    ),
+    (PROP_DATASET_SEC_POLICY_FLAGS, "Dataset:SecPolicy:Flags"),
+    (PROP_DATASET_RAW_TLVS, "Dataset:RawTlvs"),
+    (PROP_DATASET_DEST_IP_ADDRESS, "Dataset:DestIpAddress"),
+    (PROP_DATASET_ALL_FIELDS, "Dataset:AllFields"),
+    (PROP_DATASET_ALL_FIELDS_ALT, "Dataset"),
+    (PROP_DATASET_AS_VAL_MAP, "Dataset:AsValMap"),
+    (
+        PROP_DATASET_THREAD_ACTIVE_VAL_MAP,
+        "Thread:ActiveDataset:AsValMap"
+    ),
+    (
+        PROP_DATASET_THREAD_PENDING_VAL_MAP,
+        "Thread:PendingDataset:AsValMap"
+    ),
     // --- Statistics ---
     (PROP_STAT_RX, "Stat:RX"),
     (PROP_STAT_TX, "Stat:TX"),

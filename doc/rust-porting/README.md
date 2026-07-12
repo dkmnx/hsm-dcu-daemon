@@ -40,19 +40,19 @@ wisun-dcu/                    (workspace root)
 
 ## Phases
 
-| Phase   | File                                                 | Crate(s)           | Duration   | Status         |
-| ------- | ---------------------------------------------------- | ------------------ | ---------- | -------------- |
-| 1A      | [phase-1A-wisun-types.md](phase-1A-wisun-types.md)   | `wisun-types`      | 2-3 days   | Done (154db77) |
-| 1B      | [phase-1B-spinel.md](phase-1B-spinel.md)             | `spinel`           | 5-7 days   | Done (0d2c491) |
-| 1C      | [phase-1C-dcu-tun.md](phase-1C-dcu-tun.md)           | `dcu-tun`          | 3-4 days   | Done (e0153e9) |
-| 1D      | [phase-1D-dcu-serial.md](phase-1D-dcu-serial.md)     | `dcu-serial`       | 3-4 days   | Done (2d24fe3) |
-| 2A      | [phase-2A-dcu-dbus.md](phase-2A-dcu-dbus.md)         | `dcu-dbus`         | 5-7 days   | Done (fd357ce) |
-| 2B      | [phase-2B-dcuctl.md](phase-2B-dcuctl.md)             | `dcuctl`           | 5-7 days   | Done (303ef83) |
-| 3A      | [phase-3A-daemon-core.md](phase-3A-daemon-core.md)   | `dcu-daemon`       | 14-21 days | Done (2d24fe3) |
-| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md) | `dcu-daemon` tasks | 7-10 days  | Done (ffc8b81) |
-| 3C      | [phase-3C-operational-dataset.md](phase-3C-operational-dataset.md) | `dcu-daemon` dataset | 3-4 days | Not started    |
-| 4A      | [phase-4A-mock-ncp.md](phase-4A-mock-ncp.md)         | `dcu-mock`         | 3-5 days   | Done (d1b8e80) |
-| 4B      | [phase-4B-e2e-tests.md](phase-4B-e2e-tests.md)       | Integration tests  | 3-5 days   | Not started    |
+| Phase   | File                                                               | Crate(s)             | Duration   | Status                    |
+| ------- | ------------------------------------------------------------------ | -------------------- | ---------- | ------------------------- |
+| 1A      | [phase-1A-wisun-types.md](phase-1A-wisun-types.md)                 | `wisun-types`        | 2-3 days   | Done (154db77)            |
+| 1B      | [phase-1B-spinel.md](phase-1B-spinel.md)                           | `spinel`             | 5-7 days   | Done (0d2c491)            |
+| 1C      | [phase-1C-dcu-tun.md](phase-1C-dcu-tun.md)                         | `dcu-tun`            | 3-4 days   | Done (e0153e9)            |
+| 1D      | [phase-1D-dcu-serial.md](phase-1D-dcu-serial.md)                   | `dcu-serial`         | 3-4 days   | Done (2d24fe3)            |
+| 2A      | [phase-2A-dcu-dbus.md](phase-2A-dcu-dbus.md)                       | `dcu-dbus`           | 5-7 days   | Done (fd357ce)            |
+| 2B      | [phase-2B-dcuctl.md](phase-2B-dcuctl.md)                           | `dcuctl`             | 5-7 days   | Done (303ef83)            |
+| 3A      | [phase-3A-daemon-core.md](phase-3A-daemon-core.md)                 | `dcu-daemon`         | 14-21 days | Done (2d24fe3)            |
+| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md)               | `dcu-daemon` tasks   | 7-10 days  | Done (ffc8b81)            |
+| 3C      | [phase-3C-operational-dataset.md](phase-3C-operational-dataset.md) | `dcu-daemon` dataset | 3-4 days   | Implemented (uncommitted) |
+| 4A      | [phase-4A-mock-ncp.md](phase-4A-mock-ncp.md)                       | `dcu-mock`           | 3-5 days   | Done (d1b8e80)            |
+| 4B      | [phase-4B-e2e-tests.md](phase-4B-e2e-tests.md)                     | Integration tests    | 3-5 days   | Done (91fa0c0)            |
 
 **Total: ~17 weeks (estimate — the critical-path daemon core alone is 14-21 days)**
 

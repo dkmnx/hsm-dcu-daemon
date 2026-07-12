@@ -73,6 +73,7 @@ pub const PROP_NET_ROLE: u32 = 0x43;
 pub const PROP_NET_NETWORK_NAME: u32 = 0x44;
 pub const PROP_NET_XPANID: u32 = 0x45;
 pub const PROP_NET_MASTER_KEY: u32 = 0x46;
+pub const PROP_NET_PSKC: u32 = 0x4B;
 pub const PROP_NET_KEY_SEQUENCE_COUNTER: u32 = 0x47;
 pub const PROP_NET_PARTITION_ID: u32 = 0x48;
 pub const PROP_NET_REQUIRE_JOIN_EXISTING: u32 = 0x49;
@@ -89,6 +90,20 @@ pub const PROP_THREAD_NEIGHBOR_TABLE: u32 = 0x150B;
 pub const PROP_THREAD_ROUTER_TABLE: u32 = 0x1517;
 pub const PROP_THREAD_CHILD_TABLE_ADDRESSES: u32 = 0x1521;
 pub const PROP_THREAD_NEIGHBOR_TABLE_ERROR_RATES: u32 = 0x1522;
+
+// THREAD dataset container properties (SPINEL_PROP_THREAD_EXT__BEGIN + 24..=25)
+// These carry the full operational dataset (`A(t(iD))` blob) as their value.
+// The inner dataset field IDs (DATASET_*) are decoded from inside that blob.
+pub const PROP_THREAD_ACTIVE_DATASET: u32 = 0x1518;
+pub const PROP_THREAD_PENDING_DATASET: u32 = 0x1519;
+
+// THREAD dataset properties (SPINEL_PROP_THREAD_EXT__BEGIN + 28..=39)
+pub const PROP_DATASET_ACTIVE_TIMESTAMP: u32 = 0x151C;
+pub const PROP_DATASET_PENDING_TIMESTAMP: u32 = 0x151D;
+pub const PROP_DATASET_DELAY_TIMER: u32 = 0x151E;
+pub const PROP_DATASET_SECURITY_POLICY: u32 = 0x151F;
+pub const PROP_DATASET_RAW_TLVS: u32 = 0x1520;
+pub const PROP_DATASET_DEST_ADDRESS: u32 = 0x1527;
 
 // MESHCOP properties (SPINEL_PROP_MESHCOP__BEGIN = 0x80)
 pub const PROP_MESHCOP_JOINER_COMMISSIONING: u32 = 0x81;
@@ -536,6 +551,30 @@ pub fn prop_value_is(prop: u32, payload: Vec<u8>) -> SpinelFrame {
     w.write_bytes(&payload);
     SpinelFrame::new(crate::command::CMD_PROP_VALUE_IS, w.into_bytes())
 }
+
+// ---------------------------------------------------------------------------
+// Unprefixed aliases (phase 3C)
+// ---------------------------------------------------------------------------
+//
+// The porting docs reference the dataset/NET constants without the `PROP_`
+// prefix (e.g. `prop::DATASET_ACTIVE_TIMESTAMP`). These re-exports provide
+// those names without duplicating the magic numbers — a single source of
+// truth lives in the `PROP_*` constants above.
+
+pub const PHY_CHAN: u32 = PROP_PHY_CHAN;
+pub const PHY_CHAN_SUPPORTED: u32 = PROP_PHY_CHAN_SUPPORTED;
+pub const MAC_15_4_PANID: u32 = PROP_MAC_15_4_PANID;
+pub const NET_NETWORK_NAME: u32 = PROP_NET_NETWORK_NAME;
+pub const NET_MASTER_KEY: u32 = PROP_NET_MASTER_KEY;
+pub const IPV6_ML_PREFIX: u32 = PROP_IPV6_ML_PREFIX;
+pub const NET_XPANID: u32 = PROP_NET_XPANID;
+pub const NET_PSKC: u32 = PROP_NET_PSKC;
+pub const DATASET_ACTIVE_TIMESTAMP: u32 = PROP_DATASET_ACTIVE_TIMESTAMP;
+pub const DATASET_PENDING_TIMESTAMP: u32 = PROP_DATASET_PENDING_TIMESTAMP;
+pub const DATASET_DELAY_TIMER: u32 = PROP_DATASET_DELAY_TIMER;
+pub const DATASET_SECURITY_POLICY: u32 = PROP_DATASET_SECURITY_POLICY;
+pub const DATASET_RAW_TLVS: u32 = PROP_DATASET_RAW_TLVS;
+pub const DATASET_DEST_ADDRESS: u32 = PROP_DATASET_DEST_ADDRESS;
 
 #[cfg(test)]
 mod tests {

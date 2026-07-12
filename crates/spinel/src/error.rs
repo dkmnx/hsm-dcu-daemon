@@ -17,6 +17,8 @@ pub enum SpinelError {
     FrameTooLarge,
     /// Invalid header byte (missing FLAG).
     InvalidHeader,
+    /// Invalid value (e.g., wrong prefix length).
+    InvalidValue,
 }
 
 impl fmt::Display for SpinelError {
@@ -29,6 +31,7 @@ impl fmt::Display for SpinelError {
             SpinelError::CrcMismatch => f.write_str("CRC mismatch"),
             SpinelError::FrameTooLarge => f.write_str("frame too large"),
             SpinelError::InvalidHeader => f.write_str("invalid header byte"),
+            SpinelError::InvalidValue => f.write_str("invalid value"),
         }
     }
 }

@@ -109,6 +109,11 @@ pub struct DaemonState {
     pub interface_up: bool,
     pub stack_up: bool,
 
+    // --- Operational dataset (phase 3C) ---
+    /// Stringified `Dataset:*` values, refreshed from the NCP's operational
+    /// dataset when it arrives. Keyed by D-Bus property key string.
+    pub dataset: std::collections::HashMap<String, String>,
+
     // --- Daemon ---
     pub daemon_enabled: bool,
     pub ready_for_host_sleep: bool,
@@ -143,6 +148,7 @@ impl Default for DaemonState {
             mesh_local_prefix: String::new(),
             interface_up: false,
             stack_up: false,
+            dataset: std::collections::HashMap::new(),
             daemon_enabled: false,
             ready_for_host_sleep: false,
         }

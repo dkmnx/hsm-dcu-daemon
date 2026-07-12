@@ -18,10 +18,10 @@ each phase doc. Unmentioned compiled sources were inspected for real usage.
 
 ## Executive summary
 
-| Target   | CLI surface replaceable today? | Functional daemon replaceable today? | Verdict                                                                                          |
-| -------- | ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| wfanctl  | **Yes** (9 commands, parity)   | n/a                                  | Phase 2B correctly scopes the real `commandList[]`. Operators lose nothing the C CLI could do.   |
-| wfantund | n/a                            | **No — 1 blocking gap + 2 partial**  | The operational-dataset layer (serves 14+ `Dataset:*` D-Bus props) is the blocker. See P0 below. |
+| Target   | CLI surface replaceable today? | Functional daemon replaceable today? | Verdict                                                                                                                                                                                     |
+| -------- | ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| wfanctl  | **Yes** (9 commands, parity)   | n/a                                  | Phase 2B correctly scopes the real `commandList[]`. Operators lose nothing the C CLI could do.                                                                                              |
+| wfantund | n/a                            | **Partial — 2 partial gaps remain**  | The operational-dataset layer (P0-a) is now **implemented** (phase-3C doc + `dataset.rs`/`vendor_ext.rs`). Remaining: P0-b transports (`system:`/TCP) and P1 mfg/secure-RNG/packet-matcher. |
 
 The 10 phase docs are thorough on what they cover (the README dependency
 map, wire-format details, and test plans are accurate). The gaps below are
@@ -33,12 +33,15 @@ daemon and (for the dataset) actively used by `SpinelNCPInstance.cpp`.
 > stub** (`SpinelNCPVendorCustom.cpp:55` returns `false`;
 > `mSupportedProperties` is never populated; only a placeholder
 > `"__CustomKeyHere__"` is handled at lines 87-126). It is the Nest
-> extension point that TI never filled in — see P2-b. The genuine blocker is
-> the **operational dataset** codec + its `Dataset:*` D-Bus surface.
+> extension point that TI never filled in — see P2-b. The genuine blocker was
+> the **operational dataset** codec + its `Dataset:*` D-Bus surface, which is
+> now ported (see P0-a status below).
 
-**Bottom line:** `wfanctl` is on track for full replacement. `wfantund`
-cannot be dropped until phase 3B/3C ports the operational-dataset layer
-(P0 below). Everything else is secondary.
+**Bottom line:** `wfanctl` is on track for full replacement. `wfantund`'s
+operational-dataset layer (P0-a) is **implemented** (phase-3C doc + Rust
+codec wired to D-Bus `Dataset:*` dispatch and incoming `PROP_VALUE_IS`
+frames). The remaining partial gaps are P0-b (`system:`/TCP NCP transports)
+and the P1 items (mfg D-Bus methods, secure RNG, packet matcher).
 
 ---
 
@@ -85,13 +88,13 @@ behavior to preserve.
 
 ---
 
-## 2. wfantund (`dcud`) — coverage: 3 P0 gaps
+## 2. wfantund (`dcud`) — coverage: 1 P0 gap + P1 items
 
 The phase docs cover the bulk of `src/dcud/` and `src/ncp-spinel/` well.
 The following are **compiled into the production daemon and actively used,
-but appear in no phase doc**.
+but appear in no phase doc** — or were gaps that are now resolved.
 
-### P0-a. `SpinelNCPThreadDataset.{cpp,h}` — 808 LOC — **UNMENTIONED, on the D-Bus path**
+### P0-a. `SpinelNCPThreadDataset.{cpp,h}` — 808 LOC — **RESOLVED (implemented)**
 
 - Compiled: `src/ncp-spinel/Makefile.am` lists `SpinelNCPThreadDataset.cpp`.
 - Actively used: `SpinelNCPInstance.cpp:2421-2470` loads/clears/serializes
@@ -110,15 +113,18 @@ but appear in no phase doc**.
   `Dataset:ActiveTimestamp`, `Dataset:RawTlvs`, etc.) plus the
   `Thread:ActiveDataset:AsValMap` / `Thread:PendingDataset:AsValMap` keys
   (`wpan-properties.h:183,185`).
-- **These `Dataset:*` keys are NOT in phase 2A's "29 recognized property
-  keys" list.** `dcuctl get Dataset:MasterKey` (etc.) works in the C daemon
-  and would silently break in the Rust port if this layer is not ported.
-- Despite the "Thread" name, it is wired into the Wi-SUN property path and
-  is the single largest unmentioned source file in the tree.
-- **Action:** Add a `dataset` module (phase 3B or 3C). Port the
-  `set_from_spinel_frame` / `convert_to_spinel_frame` / `convert_to_valuemap`
-  / `convert_to_string_list` codec, and add the `Dataset:*` family to
-  phase 2A's property table.
+- **Status: RESOLVED.** Phase-3C doc (`phase-3C-operational-dataset.md`)
+  now covers the full codec with corrected spinel.h property IDs. The Rust
+  port lives in `crates/dcu-daemon/src/dataset.rs` (`OperationalDataset`
+  with `Option<T>` fields, `from_spinel_frame` / `to_spinel_frame` /
+  `to_valuemap` / `to_string_list`) and `crates/dcu-daemon/src/vendor_ext.rs`
+  (no-op `VendorExtension` stub). The 20 `Dataset:*` keys are registered in
+  `wisun-types::property_key`, served from `dcu-dbus::properties`, and
+  incoming `PROP_VALUE_IS` dataset frames are decoded in the NCP instance
+  frame task. Code is present in the working tree (committed as part of the
+  phase-4B integration-test commit `91fa0c0` + follow-up).
+- **Action:** None remaining for P0-a. Verify the `Dataset:*` round-trip
+  against the C daemon's wire format as a final acceptance check.
 
 ### P0-b. NCP transport dispatcher (`socket-utils.c`) — 1,031 LOC — **PARTIALLY COVERED**
 
@@ -152,18 +158,18 @@ but appear in no phase doc**.
 
 ### P2 gaps (acceptable to defer, but should be stated)
 
-| File / area                                 | LOC      | Status in docs                                                 | Note                                                                                                                  |
-| ------------------------------------------- | -------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `StatCollector.cpp`                         | 1,737    | phase 3A: "Not yet / deferred past 3A"                         | Acknowledged. Largest deferred body; ensure phase-4 plan re-introduces it.                                            |
-| `NetworkRetain.cpp`                         | ~300     | phase 3A: "Not yet"                                            | Acknowledged (persistent network config).                                                                             |
-| `Pcap.cpp`                                  | ~200     | phase 3A: "Not yet"                                            | Acknowledged (packet capture).                                                                                        |
-| `NCPInstanceBase-Addresses.cpp`             | 1,332    | phase 3A: partially; phase 3B carries it forward               | Acknowledged as phase-3B work; flagged.                                                                               |
-| `NCPInstanceBase-AsyncIO.cpp`               | ~800     | phase 3A: "Not yet"                                            | The `io_task` in phase-3A `base.rs` is the async replacement; verify feature parity.                                  |
-| `NCPInstanceBase-NetInterface.cpp`          | ~700     | phase 3A: "Not yet"                                            | TUN lifecycle wiring; phase-1C `dcu-tun` + phase-3A `net_interface.rs` (stub).                                        |
+| File / area                                 | LOC      | Status in docs                                                 | Note                                                                                                                                                                                                                                                            |
+| ------------------------------------------- | -------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StatCollector.cpp`                         | 1,737    | phase 3A: "Not yet / deferred past 3A"                         | Acknowledged. Largest deferred body; ensure phase-4 plan re-introduces it.                                                                                                                                                                                      |
+| `NetworkRetain.cpp`                         | ~300     | phase 3A: "Not yet"                                            | Acknowledged (persistent network config).                                                                                                                                                                                                                       |
+| `Pcap.cpp`                                  | ~200     | phase 3A: "Not yet"                                            | Acknowledged (packet capture).                                                                                                                                                                                                                                  |
+| `NCPInstanceBase-Addresses.cpp`             | 1,332    | phase 3A: partially; phase 3B carries it forward               | Acknowledged as phase-3B work; flagged.                                                                                                                                                                                                                         |
+| `NCPInstanceBase-AsyncIO.cpp`               | ~800     | phase 3A: "Not yet"                                            | The `io_task` in phase-3A `base.rs` is the async replacement; verify feature parity.                                                                                                                                                                            |
+| `NCPInstanceBase-NetInterface.cpp`          | ~700     | phase 3A: "Not yet"                                            | TUN lifecycle wiring; phase-1C `dcu-tun` + phase-3A `net_interface.rs` (stub).                                                                                                                                                                                  |
 | `SpinelNCPVendorCustom.cpp/.h`              | 213      | not mentioned                                                  | **No-op stub** in this build (Nest extension point TI never filled): `setup_property_supported_by_class` returns `false`, `mSupportedProperties` empty, only `"__CustomKeyHere__"` handled. Wire-in point only; port as an empty trait/extension point or omit. |
-| `ncp-dummy/` plugin template                | small    | not mentioned                                                  | Acceptable: the Rust "plugin" model is compile-time crate selection, not a runtime plugin. Add a one-liner in README. |
-| `connman-plugin/`                           | ~1 file  | README non-goal                                                | Explicitly deferred — correct.                                                                                        |
-| `wpantund-fuzz.cpp` / `ncp-spinel-fuzz.cpp` | ~2 files | phase 1B has spinel fuzz target; phase 4B: fuzz "aspirational" | Daemon-level fuzz not mapped. Minor.                                                                                  |
+| `ncp-dummy/` plugin template                | small    | not mentioned                                                  | Acceptable: the Rust "plugin" model is compile-time crate selection, not a runtime plugin. Add a one-liner in README.                                                                                                                                           |
+| `connman-plugin/`                           | ~1 file  | README non-goal                                                | Explicitly deferred — correct.                                                                                                                                                                                                                                  |
+| `wpantund-fuzz.cpp` / `ncp-spinel-fuzz.cpp` | ~2 files | phase 1B has spinel fuzz target; phase 4B: fuzz "aspirational" | Daemon-level fuzz not mapped. Minor.                                                                                                                                                                                                                            |
 
 ### Util infrastructure replaced by Rust stdlib (no port needed, for clarity)
 
@@ -183,28 +189,26 @@ listed here only to preempt "is X covered?" questions:
 
 ## 3. Per-phase doc accuracy spot-checks
 
-| Phase | Doc claim verified against source                                                                          | Result                                                                                                           |
-| ----- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1A    | Source files table (`NCPConstants.h`, `wpan-properties.h`, `wpan-error.h`, `NCPTypes.*`, `wisun_config.h`) | ✓ all present                                                                                                    |
-| 1B    | HDLC source = `SpinelNCPInstance-DataPump.cpp:65-274`; CRC-16/X.25                                         | ✓ confirmed present and located                                                                                  |
-| 1C    | TUN sources (`tunnel.c`, `TunnelIPv6Interface.*`, `netif-mgmt.c`, `IPv6Helpers.*`)                         | ✓ (the separate implementation-plan doc fixes the spec's defects — good)                                         |
-| 1D    | `SocketWrapper/SuperSocket/SocketAdapter/UnixSocket`                                                       | ⚠ covers UART + Unix-socket; misses `socket-utils.c` `system:`/TCP dispatch (P0-b)                               |
-| 2A    | `ipc-dbus/DBusIPCAPI.cpp` (2453 LOC) method set                                                            | ✓ core methods present; ⚠ `Mfg`/mfg interface headers unnamed (P1); ⚠ `Dataset:*` family (14 keys) missing from the 29-key table (P0-a) |
-| 2B    | "Only 8 registered commands"                                                                               | ✓ verified: exactly 9 entries in `commandList[]` incl. help/clear/?                                              |
-| 3A    | Source table (~10,244 LOC across `src/dcud/*`)                                                             | ⚠ `ThreadDataset` lives in `src/ncp-spinel/`, not `src/dcud/` — that's why 3A missed it. (`VendorCustom` also ncp-spinel but it is a stub.) |
-| 3B    | Task table covers all 12 `SpinelNCPTask*.cpp` files                                                        | ✓ complete; the gap is the *non-task* `ThreadDataset` (P0-a)                                                     |
-| 4A/4B | Mock + E2E design                                                                                          | ✓ internally consistent; correctly flagged as not-yet-implemented                                                |
+| Phase | Doc claim verified against source                                                                          | Result                                                                                                                                                                              |
+| ----- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1A    | Source files table (`NCPConstants.h`, `wpan-properties.h`, `wpan-error.h`, `NCPTypes.*`, `wisun_config.h`) | ✓ all present                                                                                                                                                                       |
+| 1B    | HDLC source = `SpinelNCPInstance-DataPump.cpp:65-274`; CRC-16/X.25                                         | ✓ confirmed present and located                                                                                                                                                     |
+| 1C    | TUN sources (`tunnel.c`, `TunnelIPv6Interface.*`, `netif-mgmt.c`, `IPv6Helpers.*`)                         | ✓ (the separate implementation-plan doc fixes the spec's defects — good)                                                                                                            |
+| 1D    | `SocketWrapper/SuperSocket/SocketAdapter/UnixSocket`                                                       | ⚠ covers UART + Unix-socket; misses `socket-utils.c` `system:`/TCP dispatch (P0-b)                                                                                                  |
+| 2A    | `ipc-dbus/DBusIPCAPI.cpp` (2453 LOC) method set                                                            | ✓ core methods present; ⚠ `Mfg`/mfg interface headers unnamed (P1); ✓ `Dataset:*` family (14+ keys) now documented in phase-2A + served from `dcu-dbus::properties` (P0-a RESOLVED) |
+| 2B    | "Only 8 registered commands"                                                                               | ✓ verified: exactly 9 entries in `commandList[]` incl. help/clear/?                                                                                                                 |
+| 3A    | Source table (~10,244 LOC across `src/dcud/*`)                                                             | ⚠ `ThreadDataset` lives in `src/ncp-spinel/`, not `src/dcud/` — that's why 3A missed it. (`VendorCustom` also ncp-spinel but it is a stub.) Now ported as phase-3C.                 |
+| 3B    | Task table covers all 12 `SpinelNCPTask*.cpp` files                                                        | ✓ complete; the *non-task* `ThreadDataset` was the P0-a gap — now resolved in phase-3C.                                                                                             |
+| 4A/4B | Mock + E2E design                                                                                          | ✓ internally consistent; correctly flagged as not-yet-implemented                                                                                                                   |
 
 ---
 
 ## 4. Recommendations (priority order)
 
-1. **Add a Phase 3C "Operational Dataset" doc** porting `SpinelNCPThreadDataset`
-   (808 LOC) and its 14+ `Dataset:*` D-Bus properties. This is the single
-   blocking, actively-used, unmentioned dependency for dropping `wfantund`;
-   without it, `dcuctl get Dataset:MasterKey` (and friends) silently break and
-   network-parameter persistence/regeneration is lost. (`SpinelNCPVendorCustom`
-   is a no-op stub — include it only as a documented extension point.)
+1. **(RESOLVED) Phase 3C "Operational Dataset" doc + port** — `SpinelNCPThreadDataset`
+   (808 LOC) and its 14+ `Dataset:*` D-Bus properties are now ported
+   (phase-3C doc + `dataset.rs`/`vendor_ext.rs`, wired to D-Bus). No further
+   action beyond a final wire-format acceptance check against the C daemon.
 2. **Amend Phase 2A** to add the `Dataset:*` property family to the recognized
    property table, enumerate the manufacturing D-Bus methods from
    `NCPMfgInterface_v0/v1.h`, and cross-check `DBUSHelpers.cpp` conversions
@@ -225,14 +229,15 @@ listed here only to preempt "is X covered?" questions:
 ## 5. Conclusion
 
 The rust-porting plan is high-quality and largely complete. **`wfanctl`
-(dcuctl) is fully covered** for replacement. **`wfantund` (dcud) has one
+(dcuctl) is fully covered** for replacement. **`wfantund` (dcud) had one
 blocking unmentioned dependency** — the operational-dataset codec
-(`SpinelNCPThreadDataset`, 808 LOC) and its `Dataset:*` D-Bus surface — plus
-two partial-coverage items (the `system:`/TCP NCP transports and the mfg
-D-Bus methods). The vendor-property layer (`SpinelNCPVendorCustom`) is a
-no-op stub and is not a blocker. Resolving the P0 dataset item above
-(estimated: one phase doc, ~2-3 days spec + the corresponding porting work)
-closes the gap to a drop-in Rust replacement.
+(`SpinelNCPThreadDataset`, 808 LOC) and its `Dataset:*` D-Bus surface — which
+is now **resolved** (phase-3C doc + Rust codec wired to D-Bus and incoming
+frames). The remaining open items are the `system:`/TCP NCP transports
+(P0-b, doc-only so far) and the P1 items (mfg D-Bus methods, secure RNG,
+packet matcher). The vendor-property layer (`SpinelNCPVendorCustom`) is a
+no-op stub and is not a blocker. With P0-b and the P1 items addressed,
+the Rust port reaches drop-in replacement parity for `wfantund`.
 
 ---
 

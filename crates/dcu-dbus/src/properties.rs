@@ -74,6 +74,56 @@ pub fn get_property_locked(name: &str, state: &DaemonState) -> Result<Variant, D
         "Interface:Up" => Value::from(state.interface_up),
         "Stack:Up" => Value::from(state.stack_up),
 
+        // --- Operational dataset (phase 3C) ---
+        "Dataset:AllFields" | "Dataset" => Value::from(
+            [
+                wisun_types::PROP_DATASET_ACTIVE_TIMESTAMP,
+                wisun_types::PROP_DATASET_PENDING_TIMESTAMP,
+                wisun_types::PROP_DATASET_MASTER_KEY,
+                wisun_types::PROP_DATASET_NETWORK_NAME,
+                wisun_types::PROP_DATASET_EXTENDED_PAN_ID,
+                wisun_types::PROP_DATASET_MESH_LOCAL_PREFIX,
+                wisun_types::PROP_DATASET_DELAY,
+                wisun_types::PROP_DATASET_PAN_ID,
+                wisun_types::PROP_DATASET_CHANNEL,
+                wisun_types::PROP_DATASET_PSKC,
+                wisun_types::PROP_DATASET_CHANNEL_MASK_PAGE0,
+                wisun_types::PROP_DATASET_SEC_POLICY_KEY_ROTATION,
+                wisun_types::PROP_DATASET_SEC_POLICY_FLAGS,
+                wisun_types::PROP_DATASET_RAW_TLVS,
+                wisun_types::PROP_DATASET_DEST_IP_ADDRESS,
+            ]
+            .iter()
+            .filter_map(|key| state.dataset.get(*key).map(|v| format!("{key} = {v}")))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ),
+        "Dataset:AsValMap" | "Thread:ActiveDataset:AsValMap" | "Thread:ActiveDataset" => {
+            // Filter to active-only keys, serialize as JSON.
+            let active: std::collections::HashMap<String, String> = state
+                .dataset
+                .iter()
+                .filter(|(k, _)| !k.starts_with("Thread:PendingDataset:"))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            Value::from(serde_json::to_string(&active).unwrap_or_else(|_| "{}".into()))
+        }
+        "Thread:PendingDataset:AsValMap" | "Thread:PendingDataset" => {
+            // Return pending dataset fields as JSON string.
+            let pending: std::collections::HashMap<_, _> = state
+                .dataset
+                .iter()
+                .filter(|(k, _)| k.starts_with("Thread:PendingDataset:"))
+                .map(|(k, v)| (k.strip_prefix("Thread:PendingDataset:").unwrap_or(k).to_string(), v.clone()))
+                .collect();
+            Value::from(serde_json::to_string(&pending).unwrap_or_else(|_| "{}".into()))
+        }
+        key if key.starts_with("Dataset:") || key.starts_with("Thread:") => state
+            .dataset
+            .get(key)
+            .map(|v| Value::from(v.clone()))
+            .ok_or_else(|| DbusError::UnknownProperty(name.to_string()))?,
+
         // --- Daemon ---
         "Daemon:Version" => Value::from(env!("CARGO_PKG_VERSION")),
         "Daemon:Enabled" => Value::from(state.daemon_enabled),
@@ -277,5 +327,13 @@ pub fn all_property_keys() -> &'static [&'static str] {
         "Daemon:Version",
         "Daemon:Enabled",
         "Daemon:ReadyForHostSleep",
+        // --- Operational dataset (phase 3C) ---
+        // Composite keys are always gettable (they render from the dataset
+        // map, which is empty by default). Individual `Dataset:*` fields are
+        // served only when present in the dataset map (populated by the NCP),
+        // so they are intentionally excluded here.
+        "Dataset:AllFields",
+        "Dataset:AsValMap",
+        "Thread:ActiveDataset:AsValMap",
     ]
 }
