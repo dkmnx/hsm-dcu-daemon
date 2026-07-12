@@ -65,6 +65,68 @@ pub const PROP_MAC_FIXED_RSS: u32 = 0x1308;
 pub const PROP_VENDOR__BEGIN: u32 = 0x3C00;
 pub const PROP_VENDOR__END: u32 = 0x4000;
 
+// NET properties (SPINEL_PROP_NET__BEGIN = 0x40)
+pub const PROP_NET_SAVED: u32 = 0x40;
+pub const PROP_NET_IF_UP: u32 = 0x41;
+pub const PROP_NET_STACK_UP: u32 = 0x42;
+pub const PROP_NET_ROLE: u32 = 0x43;
+pub const PROP_NET_NETWORK_NAME: u32 = 0x44;
+pub const PROP_NET_XPANID: u32 = 0x45;
+pub const PROP_NET_MASTER_KEY: u32 = 0x46;
+pub const PROP_NET_KEY_SEQUENCE_COUNTER: u32 = 0x47;
+pub const PROP_NET_PARTITION_ID: u32 = 0x48;
+pub const PROP_NET_REQUIRE_JOIN_EXISTING: u32 = 0x49;
+
+// IPV6 properties (SPINEL_PROP_IPV6__BEGIN = 0x60)
+pub const PROP_IPV6_ML_PREFIX: u32 = 0x62;
+
+// THREAD properties (SPINEL_PROP_THREAD__BEGIN = 0x50)
+pub const PROP_THREAD_MODE: u32 = 0x5E;
+
+// THREAD extended properties (SPINEL_PROP_THREAD_EXT__BEGIN = 0x1500)
+pub const PROP_THREAD_ROUTER_ROLE_ENABLED: u32 = 0x1507;
+pub const PROP_THREAD_NEIGHBOR_TABLE: u32 = 0x150B;
+pub const PROP_THREAD_ROUTER_TABLE: u32 = 0x1517;
+pub const PROP_THREAD_CHILD_TABLE_ADDRESSES: u32 = 0x1521;
+pub const PROP_THREAD_NEIGHBOR_TABLE_ERROR_RATES: u32 = 0x1522;
+
+// MESHCOP properties (SPINEL_PROP_MESHCOP__BEGIN = 0x80)
+pub const PROP_MESHCOP_JOINER_COMMISSIONING: u32 = 0x81;
+pub const PROP_MESHCOP_JOINER_DISCERNER: u32 = 0x86;
+
+// MAC scan beacon (SPINEL_PROP_MAC__BEGIN + 3 = 0x33)
+pub const PROP_MAC_SCAN_BEACON: u32 = 0x33;
+
+// MSG buffer counters (SPINEL_PROP_CNTR__BEGIN + 400 = 0x6A4)
+pub const PROP_MSG_BUFFER_COUNTERS: u32 = 0x6A4;
+
+// Scan state enum (payload of PROP_MAC_SCAN_STATE)
+pub const SCAN_STATE_IDLE: u8 = 0;
+pub const SCAN_STATE_BEACON: u8 = 1;
+pub const SCAN_STATE_ENERGY: u8 = 2;
+pub const SCAN_STATE_DISCOVER: u8 = 3;
+
+// MCU power state enum (payload of PROP_MCU_POWER_STATE)
+pub const MCU_POWER_STATE_ON: u8 = 0;
+pub const MCU_POWER_STATE_LOW_POWER: u8 = 1;
+
+// JOIN status range (used by Join/JoinerCommissioning task final waits)
+pub const STATUS_JOIN__BEGIN: i32 = 104;
+pub const STATUS_JOIN__END: i32 = 112;
+
+/// Spinel status code: returned in `PROP_VALUE_IS(LAST_STATUS, …)` when a
+/// received command payload failed to parse (SPINEL_STATUS_PARSE_ERROR = 9).
+/// Used as the default status when a LAST_STATUS response payload itself
+/// fails to decode — mirrors the C `SPINEL_STATUS_PARSE_ERROR` fallback.
+pub const SPINEL_STATUS_PARSE_ERROR: u32 = 9;
+
+// NCP capability bits (used by task capability guards)
+pub const CAP_MCU_POWER_STATE: u32 = 13;
+pub const CAP_CONFIG_FTD: u32 = 32;
+pub const CAP_ROLE_ROUTER: u32 = 48;
+pub const CAP_ROLE_SLEEPY: u32 = 49;
+pub const CAP_NEST_LEGACY_INTERFACE: u32 = 15296;
+
 /// Returns `true` if `prop` is in the TI/NCP vendor range.
 #[must_use]
 pub fn is_vendor_property(prop: u32) -> bool {

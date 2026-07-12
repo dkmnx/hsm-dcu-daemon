@@ -15,6 +15,22 @@ mod property_key;
 /// Spinel protocol command IDs.
 pub mod command;
 
+/// Driver-side state machine (the Rust analogue of
+/// `SpinelNCPInstance::mDriverState` from `SpinelNCPInstance.h:122-125`).
+///
+/// Tracks the daemon's own readiness to drive the NCP, independent of the
+/// NCP's reported [`NcpState`]. Several async task final-waits require the
+/// driver to be in `NormalOperation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DriverState {
+    /// Driver is initializing the NCP (reset/commission in progress).
+    Initializing,
+    /// Waiting for a reset acknowledgement from the NCP.
+    InitializingWaitingForReset,
+    /// Driver is idle and ready to issue commands.
+    NormalOperation,
+}
+
 // Re-exports
 pub use error::{NCP_ERROR_BASE, NCP_ERROR_END, NCP_ERROR_MASK, WpanError};
 pub use ncp_state::NcpState;

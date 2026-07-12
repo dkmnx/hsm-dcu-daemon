@@ -51,6 +51,15 @@ impl NcpState {
     pub fn is_fault(&self) -> bool {
         self == &NcpState::Fault
     }
+
+    /// Returns `true` if the NCP is still initializing.
+    ///
+    /// Matches `ncp_state_is_initializing()` from `NCPTypes.cpp:124-133`,
+    /// which is true for **only** `Uninitialized` and `Upgrading` — **not**
+    /// `Fault`. Used as the entry guard in nearly every Spinel task.
+    pub fn is_initializing(&self) -> bool {
+        matches!(self, NcpState::Uninitialized | NcpState::Upgrading)
+    }
 }
 
 impl FromStr for NcpState {
@@ -207,6 +216,18 @@ mod tests {
 
         assert!(NcpState::Fault.is_fault());
         assert!(!NcpState::Associated.is_fault());
+    }
+
+    #[test]
+    fn ncp_state_initializing() {
+        // Per NCPTypes.cpp:124-133 — only Uninitialized + Upgrading.
+        assert!(NcpState::Uninitialized.is_initializing());
+        assert!(NcpState::Upgrading.is_initializing());
+        assert!(!NcpState::Fault.is_initializing());
+        assert!(!NcpState::Offline.is_initializing());
+        assert!(!NcpState::Associated.is_initializing());
+        assert!(!NcpState::Associating.is_initializing());
+        assert!(!NcpState::DeepSleep.is_initializing());
     }
 
     #[test]
