@@ -3,7 +3,7 @@ Hacking wpantund
 
 ## Prerequisite Knowledge ##
 
-The dcud project is based on wpantund project which makes heavy use of the following:
+The wfantund project is based on wpantund project which makes heavy use of the following:
 
 * [Protothreads](http://dunkels.com/adam/pt/)
 * [`boost::any`](http://www.boost.org/doc/libs/1_57_0/doc/html/any.html)
@@ -57,7 +57,7 @@ currently the only sublass implemented).
 
 ## Developer Debugging ##
 
-To make dcud debugging easier, in 
+To make wfantund debugging easier, in 
 `<project-root>/ncp-spinel/SpinelNCPInstance-DataPump.cpp` a temporary
 output file can be created to display the hex bytes to be sent over UART
 to the NCP. To utilize this file dump, the MACRO SPINEL_DATA_DUMP_TO_FILE

@@ -12,7 +12,7 @@ commands are implemented (get, set, status...)
 
 Since WPAN Tunnel Driver communicates directly with the dangerous
 uncontrolled real-world, additional hardening is warranted. The
-following tasks are important for hardening `dcud` from malicious foes:
+following tasks are important for hardening `wfantund` from malicious foes:
 
 - Investigate ways to harden the process by Limiting kernel attackable
   surface-area by using a syscall filter like [`libseccomp`](https://github.com/seccomp/libseccomp).

@@ -1,21 +1,21 @@
-`dcud` Installation Guide
+`wfantund` Installation Guide
 =============================
 
-`dcud` is derived from `wpantund` and modified to meet the needs of TI Wi-SUN FAN Solution.
+`wfantund` is derived from `wpantund` and modified to meet the needs of TI Wi-SUN FAN Solution.
 
 This document describes the process of building and installing
-`dcud` on Ubuntu. Installation on other platforms
+`wfantund` on Ubuntu. Installation on other platforms
 may be possible, but are left as an excercise for the reader. This
 document assumes that you are at least casually familiar with
 [Autoconf][1]. It also assumes that you have already gotten a copy of
-the dcud sources, extracted them, and are wondering what to do
+the wfantund sources, extracted them, and are wondering what to do
 next.
 
 [1]: http://www.gnu.org/software/autoconf/autoconf.html
 
 
 
-Installing `dcud` on Ubuntu
+Installing `wfantund` on Ubuntu
 -------------------------------
 
 ### 1. Install Dependencies ###
@@ -36,7 +36,7 @@ Open up a terminal and perform the following commands:
 ### 2. Configure and build the project ###
 
 If the `configure` script is not already present in the root directory
-of your `dcud` sources (which it should be if you got these
+of your `wfantund` sources (which it should be if you got these
 sources from a tarball), you will need to either grab one of the `full/*`
 tags from the official git repository or run the bootstrap script.
 
@@ -71,22 +71,22 @@ the number of processor cores you have on your machine. This greatly
 improves the speed of builds.
 
 Also, if additional debugging information is required or helpful from
-`dcud`, add the argument `--enable-debug` to the `./configure`
+`wfantund`, add the argument `--enable-debug` to the `./configure`
 line above.
 
-### 3. Install `dcud` ###
+### 3. Install `wfantund` ###
 
 Once the build above is complete, execute the following command:
 
     sudo make install
 
-This will install `dcud` onto your computer.
+This will install `wfantund` onto your computer.
 
 
 Additional Instructions for BeaglePlay Setup
 --------------------------------------------
 
-If you are installing dcud on the [BeaglePlay][2] device, complete
+If you are installing wfantund on the [BeaglePlay][2] device, complete
 installation with the following instructions:
 
 1. The BeaglePlay onboard CC1352P7 device has to be flashed with the Wi-SUN
@@ -108,49 +108,49 @@ This allows access to /dev/ttyS4, the UART interface connected to the CC1352P7.
 [2]: https://www.beagleboard.org/boards/beagleplay
 [3]: https://docs.beagleboard.org/latest/boards/beagleplay/demos-and-tutorials/zephyr-cc1352-development.html#steps
 
-Configuring and Using `dcud`
+Configuring and Using `wfantund`
 -------------------------------
 
-### 1. Configuring `dcud` ###
+### 1. Configuring `wfantund` ###
 
-Now that you have `dcud` installed, you will need to edit the
+Now that you have `wfantund` installed, you will need to edit the
 configuration file to tell the daemon how to communicate with the NCP.
 You do this by editing the `wpantund.conf` file, which (if you
 followed the directions above) should now be at `/etc/wpantund.conf`.
 
 This file is, by default, filled only with comments—which describe
 all of the important configuration options that you might need to set
-in order to make dcud usable. Read them over and then uncomment
+in order to make wfantund usable. Read them over and then uncomment
 and update the appropriate configuration properties.
 
 Alternatively, you can specify any needed properties on the command
-line when invoking `dcud`. At a minimum, at least `NCPSocketName`
-needs to be specified, which describes how `dcud` is supposed to
+line when invoking `wfantund`. At a minimum, at least `NCPSocketName`
+needs to be specified, which describes how `wfantund` is supposed to
 talk to the NCP.
 
 Refer to the authorative documentation in `/etc/wpantund.conf` or
 `./src/wpantund/wpantund.conf` for more information.
 
-### 2. Start dcud ###
+### 2. Start wfantund ###
 
 To connect to an NCP on the serial port `/dev/ttyACM0`, type the
 following into terminal:
 
-    sudo /usr/local/sbin/dcud -o Config:NCP:SocketPath /dev/ttyACM0 
+    sudo /usr/local/sbin/wfantund -o Config:NCP:SocketPath /dev/ttyACM0 
 
 To change interface name: -o Config:TUN:InterfaceName `<Interface name>` 
 can be used (Default InterfaceName is set to wfan0)
 
 Note that, unless you are running as root, you *must* use `sudo` when
-invoking `dcud` directly.
+invoking `wfantund` directly.
 
 On an embedded device, you would add the appropriate scripts or
-configuration files that would cause `dcud` to be started at boot.
+configuration files that would cause `wfantund` to be started at boot.
 Doing so should be pretty straightforward.
 
 ### 3. Using `dcuctl` ###
 
-Now that you have `dcud` running, you can now issue commands to
+Now that you have `wfantund` running, you can now issue commands to
 the daemon using `dcuctl` from another window: (Again, unless you are
 running as root, you *must* use `sudo`)
 ```

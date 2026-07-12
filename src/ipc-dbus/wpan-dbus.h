@@ -109,7 +109,7 @@
 // ============================================================================
 // NestLabs Internal API Interface
 
-#define WPANTUND_DBUS_NLAPI_INTERFACE       "ti_Wi-SUN_FAN.dcud"
+#define WPANTUND_DBUS_NLAPI_INTERFACE       "ti_Wi-SUN_FAN.wfantund"
 
 #define WPANTUND_IF_CMD_PERMIT_JOIN           "PermitJoin"
 #define WPANTUND_IF_CMD_NETWORK_WAKE_BEGIN    "BeginNetWake"

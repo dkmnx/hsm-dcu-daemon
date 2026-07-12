@@ -32,7 +32,7 @@ src/stamp-h1
 /src/Makefile
 /src/connman-plugin/Makefile
 /src/ipc-dbus/Makefile
-/src/ipc-dbus/dcud.conf
+/src/ipc-dbus/wfantund.conf
 /src/missing/Makefile
 /src/missing/strlcat/Makefile
 /src/missing/strlcpy/Makefile
@@ -43,19 +43,19 @@ src/stamp-h1
 /src/util/Makefile
 /src/dcuctl/Makefile
 /src/dcuctl/dcuctl
-/src/dcud/Makefile
-/src/dcud/dcud
+/src/wfantund/Makefile
+/src/wfantund/wfantund
 /third_party/Makefile
 
 # Version files (generated)
 src/version.c
 /src/dcuctl/version.c
-/src/dcud/version.c
+/src/wfantund/version.c
 
 # Binary outputs
-/src/dcud/dcud
+/src/wfantund/wfantund
 /src/dcuctl/dcuctl
-/src/dcud/.libs/dcud
+/src/wfantund/.libs/wfantund
 /src/ncp-dummy/.libs/
 /src/ncp-spinel/.libs/
 
@@ -84,7 +84,7 @@ xcuserdata
 
 # IDE
 wpantund.xcodeproj/
-dcud.xcodeproj/
+wfantund.xcodeproj/
 
 # Third-party
 ti_wisun_webapp/node_modules

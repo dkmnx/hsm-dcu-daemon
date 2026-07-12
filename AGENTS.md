@@ -43,7 +43,7 @@ TI Wi-SUN FAN Border Router daemon derived from Nest's
 NCP communication.
 
 ```text
-src/dcud/           Main daemon binary
+src/wfantund/           Main daemon binary
 src/ncp-spinel/     Spinel protocol plugin
 src/dcuctl/         CLI control tool
 src/ipc-dbus/       D-Bus API server

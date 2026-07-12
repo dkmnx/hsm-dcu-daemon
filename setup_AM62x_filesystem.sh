@@ -25,7 +25,7 @@ AM62X_BOOT_SETUP_FOLDER=/am62x-setup/boot-setup
 AM62X_ENV=linux-devkit/environment-setup-aarch64-oe-linux
 AM62X_FILESYS_REL_PATH=targetNFS
 # Installation directories (relative to targetNFS)
-WFANTUND_INSTALL_PATH=/usr/local/sbin/dcud
+WFANTUND_INSTALL_PATH=/usr/local/sbin/wfantund
 NODEJS_INSTALL_PATH=/usr/local
 WEBAPP_INSTALL_PATH=/usr/share/
 COAP_CLIENT_INSTALL_PATH=/bin/coap-client
@@ -112,8 +112,8 @@ then
 	exit 0
 fi
 
-### Cross Compile dcud for AM62x ###
-echo "\n************* Cross Compiling dcud and dcuctl *************"
+### Cross Compile wfantund for AM62x ###
+echo "\n************* Cross Compiling wfantund and dcuctl *************"
 if [ -e $WFANTUND_PATH ]
 then
 	echo "Wfantund already cross-compiled, continuing next steps..."
@@ -128,15 +128,15 @@ else
 	make clean
 	# Cross compile
 	sudo --preserve-env=PATH make
-	#Install the compiled dcud and dcuctl to the "target's root file system"
+	#Install the compiled wfantund and dcuctl to the "target's root file system"
 	sudo make DESTDIR=$AM62X_FILESYS_PATH install
-	echo "Checking dcud at $WFANTUND_PATH"
+	echo "Checking wfantund at $WFANTUND_PATH"
 	# Check to see if cross-compilation succeeded by checking if the file was modified within last 1 minute
 	if [ -f $WFANTUND_PATH ]
 	then
 		if [ $(( ($(date +%s) - $(stat $WFANTUND_PATH  -c %Y)) / 60 )) -le 1 ]
 		then
-			echo "Successfully Compiled and Moved dcud and dcuctl to target filesystem"
+			echo "Successfully Compiled and Moved wfantund and dcuctl to target filesystem"
 		else
 			echo "Error: WFANTUND does not seem to be replaced with newly compiler binaries. Please Check for error logs"
 			#exit 0

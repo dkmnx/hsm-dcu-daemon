@@ -32,7 +32,7 @@
 #include "SuperSocket.h"
 
 /*
-* Do to the complex flows incorporated into the dcud flow, it can be helpful
+* Do to the complex flows incorporated into the wfantund flow, it can be helpful
 * to visualize the hex bytes sent to the NCP over UART. These bytes can be compared to
 * SPINEL protocol documentation to verify the intended commands are being sent to the
 * ncp, and to see what other commands might be accompanying the desired commands.

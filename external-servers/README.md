@@ -36,7 +36,7 @@ Dnsmasq is an open-source program that can act as both a DHCPv6 Server and Relay
 ## How to Run Dnsmasq as a DHCPv6 Server
 
 1. Build docker image with `docker compose build`
-2. Make sure dcud is running and the interface and stack are up.
+2. Make sure wfantund is running and the interface and stack are up.
 3. Start container with `docker compose run --rm dnsmasq`
     - This will start the server with a sane default configuration; it will listen on interface wfan0 and give addresses out between 2020:abcd::1 and 2020:abcd::ffff.
 4. If you want to run with a non-default configuration, pass your command line options in as desired. This will overwrite the default interface and address range.
@@ -44,7 +44,7 @@ Dnsmasq is an open-source program that can act as both a DHCPv6 Server and Relay
 
 ## How to Run DNSMasq as a DHCPv6 Relay
 
-1. On whichever PC is running the Server, configure the DHCPv6 Server to listen to a network interface that the dcud host can access 
+1. On whichever PC is running the Server, configure the DHCPv6 Server to listen to a network interface that the wfantund host can access 
     - if using Dnsmasq, this could look something like `docker compose run --rm dnsmasq -i [network interface] --dhcp-range 2020:ABCD::1,2020:ABCD::ffff,64,336h`, for example
     - this will listen for requests coming in from the given network interface and reply back over the same interface (assuming the routing table points to it)
 2. On the PC running the Relay, start Dnsmasq like so: `docker compose run --rm dnsmasq -i [wfan interface],[network interface] --dhcp-relay [wfan interface address],[DHCP Server Network Interface Address]`

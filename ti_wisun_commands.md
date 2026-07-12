@@ -640,13 +640,13 @@ Number of connected devices: 2
      *Description:* <br /> Number of channels in current region/PHY specification, starting from ch0. Must be modified manually when changing OOB region.
 
  # Running the Basic Example
-To start ```dcud```, use this command:<br />
+To start ```wfantund```, use this command:<br />
 
-<pre>sudo /usr/local/sbin/dcud -o Config:NCP:SocketPath /dev/ttyACM0 -o Config:TUN:InterfaceName wfan0</pre>
+<pre>sudo /usr/local/sbin/wfantund -o Config:NCP:SocketPath /dev/ttyACM0 -o Config:TUN:InterfaceName wfan0</pre>
 
 <br />
 
-A successful start of dcud should look something like this:
+A successful start of wfantund should look something like this:
 <pre>wpantund[2518]: Starting wpantund 0.08.00d (Aug 9 2021 08:08:26) . . .
 wpantund[2518]: SOURCE_VERSION = 0.07.01-361-g4b7cbb3-dirty
 wpantund[2518]: BUILD_VERSION = 0.07.01-365-ga1c331c-dirty
@@ -664,7 +664,7 @@ wpantund[2518]: Finished initializing NCP
 </pre>
 <br />
 
-*After starting up dcud, the network should be available via the software-assigned ip address, and hence can be seen when running <pre>ifconfig -a</pre>*
+*After starting up wfantund, the network should be available via the software-assigned ip address, and hence can be seen when running <pre>ifconfig -a</pre>*
 
 <br />
 
@@ -675,7 +675,7 @@ To run ```dcuctl```, use this command:
 <pre>sudo /usr/local/bin/dcuctl</pre>
 
 
-When making edits to dcud or dcuctl OR when starting up, please run the following commands from the Installation and Run Guide:
+When making edits to wfantund or dcuctl OR when starting up, please run the following commands from the Installation and Run Guide:
 
 <pre>sudo make</pre>
 

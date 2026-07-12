@@ -22,7 +22,7 @@ SUBDIRS =                \
 	ipc-dbus             \
 	connman-plugin       \
 	@PLUGIN_SUBDIRS@     \
-	wpantund             \
+	wfantund             \
 	scripts              \
 	$(NULL)
 
