@@ -14,7 +14,7 @@ Async serial/UART transport layer with HDLC framing. Communicates with the TI NC
 
 | C/C++ File                    | LOC  | What to Extract                               |
 | ----------------------------- | ---- | --------------------------------------------- |
-| `src/util/SocketWrapper.cpp`  | 400  | Serial read/write, socket management          |
+| `src/util/SocketWrapper.cpp`  | ~120 | Serial read/write, socket management          |
 | `src/util/SocketWrapper.h`    | 40   | Socket wrapper class definition               |
 | `src/util/SuperSocket.cpp`    | ~300 | Super socket abstraction                      |
 | `src/util/SuperSocket.h`      | ~50  | SuperSocket class                             |
@@ -22,7 +22,28 @@ Async serial/UART transport layer with HDLC framing. Communicates with the TI NC
 | `src/util/SocketAdapter.h`    | ~30  | Adapter trait definition                      |
 | `src/util/UnixSocket.cpp`     | ~200 | Unix domain socket transport                  |
 
-**Total C/C++ code**: ~1,120 LOC
+**Total C/C++ code**: ~848 LOC
+
+> **socket-utils.c transport dispatch (1,031 LOC).** The above files
+> cover the individual socket types. `src/util/socket-utils.c` is the
+> **transport dispatcher** that decides which socket to open based on
+> the `Config:NCP:SocketPath` prefix. It implements three paths
+> beyond raw device (covered by `uart.rs`):
+>
+> 1. **`system:` prefix** (`open_system_socket_forkpty`, line 418):
+>    spawns the NCP as a **child process** behind a PTY via
+>    double-fork + `forkpty`. This is how the daemon talks to a
+>    software/mock NCP binary. Phase 1D's `pty.rs` covers *test*
+>    PTYs; the production `system:` spawn path needs its own module
+>    (e.g. `system.rs` using `nix::pty::openpty` + `tokio::process::Command`).
+> 2. **`host:port` TCP** (`lookup_sockaddr_from_host_and_port`, line
+>    290): TCP NCP transport for remote/networked NCPs. Add a
+>    `tcp.rs` module using `tokio::net::TcpStream`.
+> 3. **`socket_name_is_device` raw `/dev/tty*`** — covered by `uart.rs`.
+>
+> Also note: `sec-random.c` (60 LOC, `src/util/sec-random.c`) is used
+> by `socket-utils.c` for entropy. In Rust, map to `ring::rand` or
+> `OsRng`.
 
 ## Crate Structure
 

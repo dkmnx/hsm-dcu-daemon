@@ -49,11 +49,12 @@ wisun-dcu/                    (workspace root)
 | 2A      | [phase-2A-dcu-dbus.md](phase-2A-dcu-dbus.md)         | `dcu-dbus`         | 5-7 days   | Done (fd357ce) |
 | 2B      | [phase-2B-dcuctl.md](phase-2B-dcuctl.md)             | `dcuctl`           | 5-7 days   | Done (303ef83) |
 | 3A      | [phase-3A-daemon-core.md](phase-3A-daemon-core.md)   | `dcu-daemon`       | 14-21 days | Done (2d24fe3) |
-| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md) | `dcu-daemon` tasks | 7-10 days  | Not started    |
-| 4A      | [phase-4A-mock-ncp.md](phase-4A-mock-ncp.md)         | `dcu-mock`         | 3-5 days   | Not started    |
+| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md) | `dcu-daemon` tasks | 7-10 days  | Done (ffc8b81) |
+| 3C      | [phase-3C-operational-dataset.md](phase-3C-operational-dataset.md) | `dcu-daemon` dataset | 3-4 days | Not started    |
+| 4A      | [phase-4A-mock-ncp.md](phase-4A-mock-ncp.md)         | `dcu-mock`         | 3-5 days   | Done (d1b8e80) |
 | 4B      | [phase-4B-e2e-tests.md](phase-4B-e2e-tests.md)       | Integration tests  | 3-5 days   | Not started    |
 
-**Total: ~14 weeks (estimate — the critical-path daemon core alone is 14-21 days)**
+**Total: ~17 weeks (estimate — the critical-path daemon core alone is 14-21 days)**
 
 > **Schedule risk**: LOC-based estimates for C→Rust translation vary widely. The phase-3A daemon core (protothread→async) is the single biggest unknown. Consider a spike week early in the project to validate the async conversion approach on a representative protothread sample before committing the full schedule.
 

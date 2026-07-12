@@ -382,6 +382,7 @@ dependencies = [
  "async-trait",
  "clap",
  "dcu-dbus",
+ "dcu-mock",
  "dcu-serial",
  "dcu-tun",
  "shell-words",

@@ -12,14 +12,13 @@ Implement the Spinel binary protocol: frame construction, encoding/decoding, HDL
 
 | C/H File                                            | LOC   | What to Extract                                           |
 | --------------------------------------------------- | ----- | --------------------------------------------------------- |
-| `src/ncp-spinel/spinel-extra.h`                     | ~150  | Spinel pack/unpack function declarations                  |
-| `src/ncp-spinel/spinel-extra.c`                     | ~800  | Spinel pack/unpack implementations                        |
-| `third_party/openthread/src/spinel/spinel.h`        | ~3000 | Property keys, command IDs, data types                    |
-| `third_party/openthread/src/spinel/platform-hdlc.h` | ~80   | HDLC constants                                            |
-| `src/ncp-spinel/SpinelNCPInstance-DataPump.cpp`     | ~400  | HDLC framing, CRC-16, escape state machine (lines 65-274) |
-| `src/util/Data.cpp`                                 | ~200  | Buffer/data container                                     |
+| `src/ncp-spinel/spinel-extra.h`                     | ~83   | Spinel pack/unpack function declarations                  |
+| `src/ncp-spinel/spinel-extra.c`                     | ~382  | Spinel pack/unpack implementations                        |
+| `third_party/openthread/src/ncp/spinel.h`            | ~4670 | Property keys, command IDs, data types                    |
+| `src/ncp-spinel/SpinelNCPInstance-DataPump.cpp`     | ~629  | HDLC framing, CRC-16, escape state machine (lines 65-274) |
+| `src/util/Data.cpp`                                 | ~23   | Buffer/data container                                     |
 
-**Total C code**: ~4,630 LOC
+**Total C code**: ~5,787 LOC
 
 **IMPORTANT**: The HDLC codec lives in `SpinelNCPInstance-DataPump.cpp`, NOT in `SocketWrapper.cpp`.
 
@@ -376,6 +375,15 @@ pub struct Ch0CenterFreq { pub mhz: u16, pub khz: u16 }
 ```
 
 Each type provides `encode() -> Vec<u8>` and `decode(&[u8]) -> Result<Self, SpinelError>`.
+
+> **Spinel encryption (`spinel_encrypter.hpp`, 33 LOC).**
+> `src/ncp-spinel/spinel_encrypter.hpp` defines a Spinel-frame
+> encryption hook (AES-CMAC-style). It is compiled into the ncp-spinel
+> plugin but is **not actively used** in this build — no encrypt/
+> decrypt calls appear in the active code path. Document it as a
+> placeholder: if future firmware requires frame-level encryption,
+> implement it as a `#[cfg]`-gated module in the `spinel` crate.
+> The current Rust port can omit it.
 
 ## Tests
 

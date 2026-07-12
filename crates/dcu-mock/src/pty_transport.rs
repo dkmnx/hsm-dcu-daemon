@@ -11,9 +11,9 @@ use dcu_serial::transport::Transport;
 /// Spinel frame of ~2.5 KB plus overhead). Shared by the builder and any
 /// future `MockTransportPair`.
 pub const DUPLEX_BUFFER_SIZE: usize = 4096;
-use tokio::io::{AsyncRead, AsyncWrite};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Newtype wrapper around `tokio::io::DuplexStream` so it can implement the
 /// local `Transport` trait (coherence).
@@ -39,17 +39,11 @@ impl AsyncWrite for DuplexTransport {
         Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().0).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
     }
 }

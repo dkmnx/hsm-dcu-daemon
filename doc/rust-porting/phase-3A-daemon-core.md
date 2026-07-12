@@ -16,24 +16,24 @@ event loop with select/poll→tokio migration, fork()→Command rewrite, and con
 | `src/dcud/wpantund.cpp`                     | 1033  | Entry point, main(), signal handling, config       |
 | `src/dcud/NCPInstanceBase.cpp`              | 2162  | Base NCP state machine, task queue                 |
 | `src/dcud/NCPInstanceBase-Addresses.cpp`    | 1332  | IPv6 address management                            |
-| `src/dcud/NCPInstanceBase-AsyncIO.cpp`      | ~800  | Async I/O pumps (NCP ↔ driver)                     |
-| `src/dcud/NCPInstanceBase-NetInterface.cpp` | ~700  | TUN interface lifecycle                            |
-| `src/dcud/NCPInstance.cpp`                  | ~400  | NCP instance creation, dispatch                    |
-| `src/dcud/NCPInstance.h`                    | ~100  | Instance class definition                          |
-| `src/dcud/NCPControlInterface.cpp`          | ~600  | Abstract control interface                         |
+| `src/dcud/NCPInstanceBase-AsyncIO.cpp`      | ~260  | Async I/O pumps (NCP ↔ driver)                     |
+| `src/dcud/NCPInstanceBase-NetInterface.cpp` | ~477  | TUN interface lifecycle                            |
+| `src/dcud/NCPInstance.cpp`                  | ~149  | NCP instance creation, dispatch                    |
+| `src/dcud/NCPInstance.h`                    | ~122  | Instance class definition                          |
+| `src/dcud/NCPControlInterface.cpp`          | ~344  | Abstract control interface                         |
 | `src/dcud/FirmwareUpgrade.cpp`              | ~400  | Firmware update (fork + exec)                      |
 | `src/dcud/StatCollector.cpp`                | 1737  | Network statistics collection                      |
-| `src/dcud/NetworkRetain.cpp`                | ~300  | Persistent network config                          |
-| `src/dcud/Pcap.cpp`                         | ~200  | Packet capture                                     |
-| `src/dcud/RunawayResetBackoffManager.cpp`   | ~150  | Reset backoff logic                                |
-| `src/dcud/NCPTypes.cpp`                     | ~20   | ToString helpers                                   |
+| `src/dcud/NetworkRetain.cpp`                | ~215  | Persistent network config                          |
+| `src/dcud/Pcap.cpp`                         | ~378  | Packet capture                                     |
+| `src/dcud/RunawayResetBackoffManager.cpp`   | ~70   | Reset backoff logic                                |
+| `src/dcud/NCPTypes.cpp`                     | ~465  | ToString helpers                                   |
 | `src/dcud/wpan-error.c`                     | ~80   | Error code strings                                 |
 | `src/dcud/NCPTypes.h`                       | ~60   | Type aliases                                       |
 | `src/dcud/wpantund.h`                       | ~40   | Global declarations                                |
 | `src/dcud/IPCServer.h`                      | ~30   | IPC interface                                      |
-| `src/dcud/NetworkInstance.h`                | ~40   | Network instance definition                        |
+| `src/dcud/NetworkInstance.h`                | ~172  | Network instance definition                        |
 
-**Total C/C++ code**: ~10,244 LOC
+**Total C/C++ code**: ~9,627 LOC
 
 ## Crate Structure
 
@@ -85,6 +85,17 @@ dcu-daemon/
 | `stat_collector.rs`    | Not yet     | Network statistics (deferred past 3A)                              |
 | `network_retain.rs`    | Not yet     | Persistent config (deferred past 3A)                               |
 | `pcap.rs`              | Not yet     | Packet capture (deferred past 3A)                                  |
+
+> **`packet_matcher.rs` — `IPv6PacketMatcher.cpp` (555 LOC).**
+> Phase 1C (`phase-1C-dcu-tun.md`) lists `IPv6PacketMatcher.cpp`
+> under "Source Files to Port" but then defers it to phase 3A in
+> the Out-of-scope section. Phase 3A's module table does not list
+> it. **Assign explicitly:** add `packet_matcher.rs` as the Rust
+> equivalent of `IPv6PacketMatcher.cpp`. It provides firewall/packet
+> classification on the data path (match on source/dest address,
+> next-header, port ranges). The daemon's async data pump
+> (`pump_driver_to_ncp` / `pump_ncp_to_driver`) calls into this
+> layer to filter packets before forwarding.
 | `event.rs`             | Deleted     | Replaced by inline Notify slots in base.rs                         |
 
 ### Resolved spec gaps

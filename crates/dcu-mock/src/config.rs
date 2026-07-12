@@ -33,7 +33,9 @@ pub struct CapabilitySet {
 
 impl CapabilitySet {
     pub fn empty() -> Self {
-        Self { bits: BTreeSet::new() }
+        Self {
+            bits: BTreeSet::new(),
+        }
     }
 
     /// Standard router-capable NCP.

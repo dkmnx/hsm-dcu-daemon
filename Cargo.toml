@@ -19,3 +19,5 @@ all = "deny"
 
 [profile.release]
 strip = true
+lto = "thin"
+codegen-units = 1

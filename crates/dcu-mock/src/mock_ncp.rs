@@ -14,11 +14,10 @@ use spinel::frame::SpinelFrame;
 use spinel::hdlc::HdlcEncoder;
 use spinel::pack::{PackReader, PackWriter};
 use spinel::property::{
-    is_vendor_property, prop_value_is, PROP_CAPS, PROP_HWADDR, PROP_INTERFACE_COUNT,
-    PROP_INTERFACE_TYPE, PROP_LAST_STATUS, PROP_MAC_15_4_PANID, PROP_MAC_SCAN_MASK,
-    PROP_MAC_SCAN_STATE, PROP_MCU_POWER_STATE, PROP_NCP_VERSION, PROP_NET_IF_UP,
-    PROP_NET_STACK_UP, PROP_PHY_CHAN, PROP_PHY_ENABLED, PROP_PROTOCOL_VERSION, SCAN_STATE_BEACON,
-    SCAN_STATE_IDLE,
+    PROP_CAPS, PROP_HWADDR, PROP_INTERFACE_COUNT, PROP_INTERFACE_TYPE, PROP_LAST_STATUS,
+    PROP_MAC_15_4_PANID, PROP_MAC_SCAN_MASK, PROP_MAC_SCAN_STATE, PROP_MCU_POWER_STATE,
+    PROP_NCP_VERSION, PROP_NET_IF_UP, PROP_NET_STACK_UP, PROP_PHY_CHAN, PROP_PHY_ENABLED,
+    PROP_PROTOCOL_VERSION, SCAN_STATE_BEACON, SCAN_STATE_IDLE, is_vendor_property, prop_value_is,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
@@ -80,9 +79,10 @@ impl PropStore {
         map.insert(PROP_NCP_VERSION, encode_str(&config.ncp_version));
         map.insert(PROP_INTERFACE_TYPE, encode_u32(1));
         map.insert(PROP_INTERFACE_COUNT, encode_u32(1));
-        map.insert(PROP_HWADDR, encode_u64(
-            u64::from_le_bytes(config.hardware_address.0),
-        ));
+        map.insert(
+            PROP_HWADDR,
+            encode_u64(u64::from_le_bytes(config.hardware_address.0)),
+        );
         map.insert(PROP_PHY_ENABLED, encode_bool(true));
         map.insert(PROP_PHY_CHAN, encode_u8(11));
         map.insert(PROP_MAC_15_4_PANID, encode_u16(0xABCD));
@@ -144,7 +144,13 @@ impl<T: dcu_serial::transport::Transport + Unpin> MockNcp<T> {
         // Initialize remaining_drops from the first DropFrames rule (if any).
         let remaining_drops = failure_rules
             .iter()
-            .find_map(|r| if let FailureRule::DropFrames(n) = r { Some(*n) } else { None })
+            .find_map(|r| {
+                if let FailureRule::DropFrames(n) = r {
+                    Some(*n)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(0);
         Ok(Self {
             framed: dcu_serial::FramedTransport::new(transport),
@@ -214,9 +220,10 @@ impl<T: dcu_serial::transport::Transport + Unpin> MockNcp<T> {
 
             // Determine if the current frame should be corrupted, before
             // the send loop (avoids borrow conflicts with inner_mut).
-            let do_corrupt = self.failure_rules.iter().any(|rule| {
-                matches!(rule, FailureRule::CorruptCrc(n) if *n == self.frame_counter)
-            });
+            let do_corrupt = self
+                .failure_rules
+                .iter()
+                .any(|rule| matches!(rule, FailureRule::CorruptCrc(n) if *n == self.frame_counter));
             for resp in &responses {
                 if do_corrupt {
                     let mut raw = HdlcEncoder::new().encode_frame(resp);
@@ -237,18 +244,25 @@ impl<T: dcu_serial::transport::Transport + Unpin> MockNcp<T> {
     }
 
     async fn handle_frame(&mut self, frame: SpinelFrame) -> Result<Vec<SpinelFrame>, MockError> {
-        match frame.command_id {
-            CMD_RESET => Ok(self.handle_reset()),
-            CMD_NOOP => Ok(vec![last_status_error(0)]),
-            CMD_NET_CLEAR => Ok(self.handle_net_clear()),
-            CMD_PEEK => self.handle_peek(&frame.payload),
-            CMD_PROP_VALUE_GET => self.handle_prop_value_get(&frame.payload).await,
-            CMD_PROP_VALUE_SET => self.handle_prop_value_set(&frame.payload).await,
+        let tid = frame.tid();
+        let mut responses = match frame.command_id {
+            CMD_RESET => self.handle_reset(),
+            CMD_NOOP => vec![last_status_error(0)],
+            CMD_NET_CLEAR => self.handle_net_clear(),
+            CMD_PEEK => self.handle_peek(&frame.payload)?,
+            CMD_PROP_VALUE_GET => self.handle_prop_value_get(&frame.payload).await?,
+            CMD_PROP_VALUE_SET => self.handle_prop_value_set(&frame.payload).await?,
             _ => {
                 tracing::warn!("Mock NCP: unhandled command {}", frame.command_id);
-                Ok(vec![last_status_error(0)])
+                vec![last_status_error(0)]
             }
+        };
+        // Echo the request TID on every response frame so the daemon's
+        // response_table delivers them to the waiting oneshot.
+        for resp in &mut responses {
+            resp.header = (resp.header & 0xF0) | (tid & 0x0F);
         }
+        Ok(responses)
     }
 
     // ---- Command handlers ----

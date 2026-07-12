@@ -110,7 +110,7 @@ async fn io_task<T: dcu_serial::Transport + Unpin>(
 
 /// The base NCP instance.
 pub struct NcpInstanceBase {
-    ncp_state: Arc<RwLock<NcpState>>,
+    pub(crate) ncp_state: Arc<RwLock<NcpState>>,
     interface_name: String,
     state_changed: Arc<Notify>,
 
@@ -130,6 +130,11 @@ pub struct NcpInstanceBase {
 
     /// Cancellation token for the I/O task. Created by start_pumps(), consumed by stop().
     io_cancel: Option<CancellationToken>,
+
+    /// Join handle for the frame-processing task spawned in `run()`.
+    /// Cancelled/aborted via stop() and on every run() exit path so it
+    /// never outlives the instance.
+    frame_task: Option<tokio::task::JoinHandle<()>>,
 
     /// Active scan collector. Only one scan runs at a time, so a single slot.
     /// Set by `register_scan_collector`, cleared by `unregister_scan_collector`
@@ -164,6 +169,7 @@ impl NcpInstanceBase {
             outbound_tx: mpsc::unbounded_channel().0, // stub — replaced in start_pumps
             io_cancel: None,
             scan_collector: Arc::new(RwLock::new(None)),
+            frame_task: None,
             config,
         })
     }
@@ -190,6 +196,69 @@ impl NcpInstanceBase {
     /// matching responses via the response table.
     pub async fn run(&mut self, cancel: CancellationToken) {
         tracing::info!("Starting NCP instance event loop");
+
+        // Spawn a dedicated frame-processing task so that send_command()
+        // (called from handle_command) can await responses without deadlocking
+        // the main loop. The frame task reads frame_rx and delivers TID-matched
+        // responses via the response table.
+        let response_table = self.response_table.clone();
+        let scan_collector = self.scan_collector.clone();
+        let frame_rx = std::mem::replace(&mut self.frame_rx, mpsc::unbounded_channel().1);
+        let frame_cancel = cancel.clone();
+        self.frame_task = Some(tokio::spawn(async move {
+            let mut frame_rx = frame_rx;
+            loop {
+                tokio::select! {
+                    _ = frame_cancel.cancelled() => break,
+                    frame = frame_rx.recv() => {
+                        match frame {
+                            Some(frame) => {
+                                if !response_table.deliver(&frame) {
+                                    Self::dispatch_unsolicited_static(&frame, &scan_collector).await;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+        }));
+
+        // Init: send CMD_RESET, query CAPS. On failure, leave the NCP in
+        // a fault state rather than masking it as Offline — a dead/unresponsive
+        // NCP must surface to readiness probes.
+        if let Err(e) = self
+            .send_command(spinel::command::CMD_RESET, Vec::new())
+            .await
+        {
+            tracing::error!("NCP init reset failed: {e}");
+            self.set_ncp_state(NcpState::Fault).await;
+            self.drain_frame_task().await;
+            return;
+        }
+        // Query capabilities from the NCP.
+        match self.send_prop_get(spinel::property::PROP_CAPS).await {
+            Ok(resp) => {
+                let mut r = spinel::pack::PackReader::new(&resp.payload);
+                let _ = r.read_uint_packed(); // skip property key
+                let mut caps = HashSet::new();
+                while r.remaining() > 0 {
+                    if let Ok(cap) = r.read_uint_packed() {
+                        caps.insert(cap);
+                    }
+                }
+                self.set_capabilities(caps).await;
+                tracing::info!("NCP capabilities: {:?}", self.capabilities.read().await);
+            }
+            Err(e) => {
+                tracing::error!("Failed to query NCP capabilities: {e}");
+                self.set_ncp_state(NcpState::Fault).await;
+                self.drain_frame_task().await;
+                return;
+            }
+        }
+        self.set_ncp_state(NcpState::Offline).await;
+
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
@@ -199,17 +268,49 @@ impl NcpInstanceBase {
                         None => break,
                     }
                 }
-                frame = self.frame_rx.recv() => {
-                    match frame {
-                        Some(frame) => {
-                            if !self.response_table.deliver(&frame) {
-                                self.dispatch_unsolicited(&frame).await;
-                            }
-                        }
-                        None => break,
-                    }
+            }
+        }
+
+        self.drain_frame_task().await;
+    }
+
+    /// Cancel and await the frame-processing task (if any).
+    async fn drain_frame_task(&mut self) {
+        if let Some(handle) = self.frame_task.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+
+    /// Route unsolicited frames using Arc'd fields (callable from a spawned task).
+    async fn dispatch_unsolicited_static(
+        frame: &SpinelFrame,
+        scan_collector: &std::sync::Arc<
+            tokio::sync::RwLock<Option<mpsc::UnboundedSender<SpinelFrame>>>,
+        >,
+    ) {
+        if frame.command_id != spinel::command::CMD_PROP_VALUE_IS {
+            tracing::trace!("Unsolicited cmd={}", frame.command_id);
+            return;
+        }
+        let prop = match spinel::pack::PackReader::new(&frame.payload).read_uint_packed() {
+            Ok(p) => p,
+            Err(_) => {
+                tracing::warn!("Malformed PROP_VALUE_IS frame");
+                return;
+            }
+        };
+        if prop == spinel::property::PROP_MAC_SCAN_BEACON
+            || prop == spinel::property::PROP_MAC_SCAN_STATE
+        {
+            if let Some(tx) = scan_collector.read().await.clone() {
+                if tx.send(frame.clone()).is_err() {
+                    tracing::warn!("Scan collector dropped; clearing slot");
+                    *scan_collector.write().await = None;
                 }
             }
+        } else {
+            tracing::trace!("Unsolicited property 0x{prop:04X}");
         }
     }
 
@@ -298,14 +399,6 @@ impl NcpInstanceBase {
 
     /// Open the serial transport and spawn the I/O task.
     pub async fn start_pumps(&mut self) -> Result<(), DaemonError> {
-        let cancel = CancellationToken::new();
-        self.io_cancel = Some(cancel.clone());
-        let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
-        self.frame_rx = frame_rx;
-        self.frame_tx = frame_tx;
-        self.outbound_tx = outbound_tx;
-
         // Open the serial transport. For now: PTY if config says so,
         // otherwise UART.
         // TODO: parse Config:NCP:SocketPath for system:/serial:/TCP prefixes
@@ -323,6 +416,25 @@ impl NcpInstanceBase {
             flow_control: true,
         };
         let transport = dcu_serial::UartTransport::open(serial_cfg)?;
+        self.start_pumps_impl(transport).await
+    }
+
+    /// Shared pump setup: wire channels, spawn the I/O task over `transport`.
+    ///
+    /// Both `start_pumps` (production serial) and `start_pumps_with_transport`
+    /// (tests) funnel through here so the channel wiring and task spawn
+    /// cannot drift between the two paths.
+    async fn start_pumps_impl<T: dcu_serial::Transport + Unpin>(
+        &mut self,
+        transport: T,
+    ) -> Result<(), DaemonError> {
+        let cancel = CancellationToken::new();
+        self.io_cancel = Some(cancel.clone());
+        let (frame_tx, frame_rx) = mpsc::unbounded_channel();
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
+        self.frame_rx = frame_rx;
+        self.frame_tx = frame_tx;
+        self.outbound_tx = outbound_tx;
 
         tokio::spawn(io_task(
             transport,
@@ -334,10 +446,27 @@ impl NcpInstanceBase {
         Ok(())
     }
 
+    /// Start I/O pumps over an existing transport, skipping the serial open.
+    ///
+    /// Used by integration tests to inject an in-memory mock NCP transport
+    /// without touching the filesystem or hardware.
+    #[cfg(feature = "test-util")]
+    pub async fn start_pumps_with_transport<T: dcu_serial::transport::Transport + Unpin>(
+        &mut self,
+        transport: T,
+    ) -> Result<(), DaemonError> {
+        self.start_pumps_impl(transport).await
+    }
+
     pub async fn stop(&mut self) -> Result<(), DaemonError> {
         tracing::info!("Stopping NCP instance");
         if let Some(cancel) = self.io_cancel.take() {
             cancel.cancel();
+        }
+        // Abort the frame-processing task so it can't outlive the instance.
+        if let Some(handle) = self.frame_task.take() {
+            handle.abort();
+            let _ = handle.await;
         }
         Ok(())
     }
@@ -423,35 +552,6 @@ impl NcpInstanceBase {
     /// Clear the active scan collector.
     pub async fn unregister_scan_collector(&self) {
         *self.scan_collector.write().await = None;
-    }
-
-    /// Handle unsolicited (TID==0) frames that were not consumed by the
-    /// response table. Currently this forwards scan beacons/energy results to
-    /// the active scan collector; everything else is traced.
-    async fn dispatch_unsolicited(&self, frame: &SpinelFrame) {
-        if frame.command_id != spinel::command::CMD_PROP_VALUE_IS {
-            tracing::trace!("Unsolicited cmd={}", frame.command_id);
-            return;
-        }
-        let prop = match spinel::pack::PackReader::new(&frame.payload).read_uint_packed() {
-            Ok(p) => p,
-            Err(_) => {
-                tracing::warn!("Malformed PROP_VALUE_IS frame");
-                return;
-            }
-        };
-        if prop == spinel::property::PROP_MAC_SCAN_BEACON
-            || prop == spinel::property::PROP_MAC_SCAN_STATE
-        {
-            if let Some(tx) = self.scan_collector.read().await.clone() {
-                if tx.send(frame.clone()).is_err() {
-                    tracing::warn!("Scan collector dropped; clearing slot");
-                    *self.scan_collector.write().await = None;
-                }
-            }
-        } else {
-            tracing::trace!("Unsolicited property 0x{prop:04X}");
-        }
     }
 
     pub async fn handle_command(

@@ -13,13 +13,13 @@ Implement the D-Bus API that `dcuctl` and the webapp use to communicate with the
 | C/C++ File                        | LOC  | What to Extract                                    |
 | --------------------------------- | ---- | -------------------------------------------------- |
 | `src/ipc-dbus/DBusIPCAPI.cpp`     | 2453 | All D-Bus method/property handlers                 |
-| `src/ipc-dbus/DBusIPCAPI.h`       | ~80  | API class definition                               |
-| `src/ipc-dbus/DBUSIPCServer.cpp`  | ~600 | D-Bus connection, object registration              |
+| `src/ipc-dbus/DBusIPCAPI.h`       | ~332  | API class definition                               |
+| `src/ipc-dbus/DBUSIPCServer.cpp`  | ~405  | D-Bus connection, object registration              |
 | `src/ipc-dbus/DBUSIPCServer.h`    | ~50  | Server class definition                            |
 | `src/ipc-dbus/wpan-dbus.h`        | ~200 | D-Bus interface XML definitions                    |
 | `src/ipc-dbus/Makefile.am`        | ~70  | Build config (to extract interface names)          |
 
-**Total C/C++ code**: ~3,453 LOC
+**Total C/C++ code**: ~3,387 LOC
 
 ## Crate Structure
 
@@ -320,9 +320,35 @@ pub fn variant_to_string(v: &Variant) -> String;
 pub fn all_property_keys() -> &'static [&'static str];
 ```
 
+> **Cross-reference: `DBUSHelpers.cpp` (468 LOC).**
+> `src/util/DBUSHelpers.cpp` contains D-Bus variant<->C++ conversion
+> helpers used by `src/ipc-dbus/`. The `variant_to_string` function
+> above is the Rust equivalent of the C `dump_info_from_iter()`
+> helper in `wpanctl-utils.c:45-158`. Verify that every D-Bus type
+> conversion in `DBUSHelpers.cpp` (byte arrays, uint64 hex, variant
+> unwrapping) has a matching path in `variant_to_string` and the
+> `property_formatter.rs` module of phase 2B.
+
 Writable properties: `Network:Name`, `Network:PANID`, `Network:XPANID`,
 `Interface:Up`, `Stack:Up`, `NCP:Region`, `NCP:ModeID`, `NCP:CCAThreshold`,
 `NCP:TXPower`, `Daemon:Enabled`.
+
+> **Dataset:* property family (14 keys).** The C daemon also serves
+> `Dataset:ActiveTimestamp`, `Dataset:PendingTimestamp`,
+> `Dataset:MasterKey`, `Dataset:NetworkName`, `Dataset:ExtendedPanId`,
+> `Dataset:MeshLocalPrefix`, `Dataset:Delay`, `Dataset:PanId`,
+> `Dataset:Channel`, `Dataset:PSKc`, `Dataset:ChannelMaskPage0`,
+> `Dataset:SecPolicy:KeyRotation`, `Dataset:SecPolicy:Flags`,
+> `Dataset:RawTlvs`, `Dataset:DestIpAddress`, plus composite keys
+> `Dataset:AllFields`, `Dataset:AsValMap`,
+> `Thread:ActiveDataset:AsValMap`, `Thread:PendingDataset:AsValMap`
+> (defined in `wpan-properties.h:183-220`). These are read-only
+> properties backed by the `SpinelNCPThreadDataset` operational-dataset
+> codec. They are **not** in the 29-key list above. The property
+> handlers for these keys are implemented as part of phase 3C
+> (see `phase-3C-operational-dataset.md`). Add them to the
+> `all_property_keys()` list and to the `handle_get_property`
+> dispatch before claiming full property coverage.
 
 ### `signals.rs`
 

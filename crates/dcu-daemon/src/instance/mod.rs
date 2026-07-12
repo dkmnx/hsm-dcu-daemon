@@ -50,8 +50,27 @@ impl NcpInstance {
         self.inner.interface_name()
     }
 
+    /// Read the NCP state from the inner instance (not DaemonState).
+    pub async fn get_ncp_state(&self) -> wisun_types::NcpState {
+        self.inner.get_ncp_state().await
+    }
+
+    /// Clone the Arc<NcpState> handle for use outside the instance.
+    pub fn ncp_state_handle(&self) -> std::sync::Arc<tokio::sync::RwLock<wisun_types::NcpState>> {
+        self.inner.ncp_state.clone()
+    }
+
     pub async fn start_pumps(&mut self) -> Result<(), DaemonError> {
         self.inner.start_pumps().await
+    }
+
+    /// Start I/O pumps over an existing transport (for tests).
+    #[cfg(feature = "test-util")]
+    pub async fn start_pumps_with_transport<T: dcu_serial::transport::Transport + Unpin>(
+        &mut self,
+        transport: T,
+    ) -> Result<(), DaemonError> {
+        self.inner.start_pumps_with_transport(transport).await
     }
 
     pub async fn stop(&mut self) -> Result<(), DaemonError> {

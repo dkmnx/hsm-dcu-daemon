@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use spinel::frame::SpinelFrame;
 use spinel::pack::PackWriter;
-use spinel::property::prop_value_is;
 use spinel::property::PROP_MAC_SCAN_BEACON;
+use spinel::property::prop_value_is;
 use wisun_types::Eui64;
 
 /// A simulated node in the mock network.

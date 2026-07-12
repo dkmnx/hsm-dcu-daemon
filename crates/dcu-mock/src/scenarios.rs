@@ -23,10 +23,7 @@ pub enum Scenario {
         _node_count: usize,
     },
     /// Power on, join an existing network.
-    JoinNetwork {
-        network_name: String,
-        pan_id: u16,
-    },
+    JoinNetwork { network_name: String, pan_id: u16 },
     /// Deep sleep → wake cycle via `MCU_POWER_STATE`.
     SleepWake,
     /// Multiple nodes join and leave (topology simulation).
@@ -37,26 +34,27 @@ pub enum Scenario {
     /// Send `CMD_RESET` and observe the mock reset.
     NcpReset,
     /// Never respond to a specific command, causing a daemon timeout.
-    CommandTimeout {
-        _command_id: u32,
-    },
+    CommandTimeout { _command_id: u32 },
     /// Reject a specific property get with `LAST_STATUS_FAILURE`.
-    RejectProperty {
-        _prop_key: u32,
-    },
+    RejectProperty { _prop_key: u32 },
 }
 
 impl Scenario {
     /// Execute the scenario by driving a framed transport connected to a mock
     /// NCP. The mock's `run()` must be spawned by the caller.
-    pub async fn execute(self, frame_tx: &mut FramedTransport<DuplexTransport>) -> Result<(), MockError> {
+    pub async fn execute(
+        self,
+        frame_tx: &mut FramedTransport<DuplexTransport>,
+    ) -> Result<(), MockError> {
         match self {
-            Scenario::FormNetwork { network_name, pan_id, _node_count: _ } => {
+            Scenario::FormNetwork {
+                network_name,
+                pan_id,
+                _node_count: _,
+            } => {
                 // Clear any previous network settings via NET_CLEAR.
-                let clear_frame = spinel::frame::SpinelFrame::new(
-                    spinel::command::CMD_NET_CLEAR,
-                    Vec::new(),
-                );
+                let clear_frame =
+                    spinel::frame::SpinelFrame::new(spinel::command::CMD_NET_CLEAR, Vec::new());
                 frame_tx.send_frame(&clear_frame).await?;
                 let _ = frame_tx.recv_frame().await?;
 

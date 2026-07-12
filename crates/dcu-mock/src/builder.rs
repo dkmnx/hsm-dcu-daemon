@@ -67,9 +67,7 @@ impl MockNcpBuilder<DuplexTransport> {
 
     /// Build a `MockNcp` using an internal `DuplexTransport` pair.
     /// Returns the mock and the daemon-side transport.
-    pub fn build(
-        self,
-    ) -> (MockNcp<DuplexTransport>, DuplexTransport) {
+    pub fn build(self) -> (MockNcp<DuplexTransport>, DuplexTransport) {
         let (daemon_raw, mock_raw) = tokio::io::duplex(crate::pty_transport::DUPLEX_BUFFER_SIZE);
         let mock = MockNcp::new(
             DuplexTransport(mock_raw),

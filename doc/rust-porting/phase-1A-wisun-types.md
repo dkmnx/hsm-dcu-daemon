@@ -21,14 +21,14 @@ Maps every C `#define` and enum to Rust types.
 
 | C File                          | LOC  | What to Extract         |
 | ------------------------------- | ---- | ----------------------- |
-| `src/dcud/NCPConstants.h`       | ~200 | NCP state, command IDs  |
-| `src/dcud/wpan-properties.h`    | ~300 | Property key constants  |
-| `src/dcud/wpan-error.h`         | ~80  | Error code enum         |
-| `src/dcud/NCPTypes.h`           | ~60  | Type aliases            |
-| `src/dcud/NCPTypes.cpp`         | ~20  | ToString helpers        |
-| `src/ncp-spinel/wisun_config.h` | ~150 | Wi-SUN config constants |
+| `src/dcud/NCPConstants.h`       | ~51  | NCP state, command IDs  |
+| `src/dcud/wpan-properties.h`    | ~636 | Property key constants  |
+| `src/dcud/wpan-error.h`         | ~89  | Error code enum         |
+| `src/dcud/NCPTypes.h`           | ~121 | Type aliases            |
+| `src/dcud/NCPTypes.cpp`         | ~465 | ToString helpers        |
+| `src/ncp-spinel/wisun_config.h` | ~38  | Wi-SUN config constants |
 
-**Total C code**: ~810 LOC
+**Total C code**: ~1,400 LOC
 
 ## Crate Structure
 
@@ -150,6 +150,14 @@ pub const MAX_CHANNEL_MASK_SIZE: usize = 17;
 pub const WISUN_DEFAULT_CH0_CENTER_FREQ_MHZ_PART: u32 = 902;
 pub const WISUN_DEFAULT_CH0_CENTER_FREQ_KHZ_PART: u32 = 200;
 ```
+
+> **Secure RNG (`sec-random.c`, 60 LOC).**
+> `src/util/sec-random.c` provides secure random byte generation,
+> used by `socket-utils.c` for connection entropy and potentially
+> by `GeneratePSKc` D-Bus method (phase 2A). In Rust, map to
+> `ring::rand` or `std::collections::hash_map::RandomState` /
+> `OsRng`. Add a `secure_random` helper to `wisun-types::constants`
+> or a thin wrapper in `spinel` if the Spinel crate needs it.
 
 ### `network_config.rs`
 

@@ -21,7 +21,15 @@ thiserror = { workspace = true }
 shell-words = "1"
 zbus = { workspace = true }
 
+[features]
+test-util = []
+
+[[test]]
+name = "integration"
+required-features = ["test-util"]
+
 [dev-dependencies]
+dcu-mock = { path = "../dcu-mock" }
 
 [lints]
 workspace = true

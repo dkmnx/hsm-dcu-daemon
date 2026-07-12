@@ -845,6 +845,21 @@ thiserror = "2"
 Note: `dcu-dbus` is NOT a dependency. dcuctl is a pure D-Bus client;
 `dcu-dbus` is the server they talk to.
 
+## Implementation deviations (from git history)
+
+The implemented dcuctl crate deviates from this spec in two ways:
+
+1. **`repl.rs` was not created as a separate file.** The interactive REPL
+   logic lives in `main.rs` (using `rustyline`) with the batch fallback
+   inline. The spec's separate `repl.rs` module is unnecessary.
+
+2. **`property_formatter.rs` was not created.** Property formatting is
+   handled inline in `commands/get.rs` and `commands/status.rs`. The
+   spec's separate formatter module is unnecessary.
+
+These deviations are acceptable — the functionality is present, just
+organized differently.
+
 ## Verification Checklist
 
 - [ ] All 8 registered commands implemented: `get`, `set`, `status`, `reset`, `help`, `quit`/`exit`/`q`, `clear`, plus hidden `add`/`remove`
