@@ -35,7 +35,10 @@ pub struct ResponseTable {
 
 impl ResponseTable {
     pub fn register(&self, tid: u8, sender: oneshot::Sender<SpinelFrame>) {
-        self.pending.lock().unwrap().push((tid, sender));
+        self.pending
+            .lock()
+            .expect("response table mutex poisoned")
+            .push((tid, sender));
     }
 
     /// Deliver a frame to the task waiting on its TID. Returns `true` if delivered.
@@ -44,7 +47,7 @@ impl ResponseTable {
         if tid == 0 {
             return false;
         }
-        let mut map = self.pending.lock().unwrap();
+        let mut map = self.pending.lock().expect("response table mutex poisoned");
         if let Some(pos) = map.iter().position(|(t, _)| *t == tid) {
             let (_, sender) = map.remove(pos);
             let _ = sender.send(frame.clone());
@@ -55,7 +58,10 @@ impl ResponseTable {
     }
 
     pub fn unregister(&self, tid: u8) {
-        self.pending.lock().unwrap().retain(|(t, _)| *t != tid);
+        self.pending
+            .lock()
+            .expect("response table mutex poisoned")
+            .retain(|(t, _)| *t != tid);
     }
 }
 

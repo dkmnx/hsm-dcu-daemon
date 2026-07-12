@@ -237,66 +237,54 @@ pub mod prop {
 }
 
 /// Security policy for the operational dataset.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SecurityPolicy {
     pub key_rotation_time: u16,
     pub flags: u8,
 }
 
-/// An optional field value (matches C++ ThreadDataset::Optional<T>).
-#[derive(Debug, Clone)]
-pub struct OptionalField<T> {
-    value: Option<T>,
-}
-
-impl<T> OptionalField<T> {
-    pub fn new() -> Self { Self { value: None } }
-    pub fn has_value(&self) -> bool { self.value.is_some() }
-    pub fn get(&self) -> &T { self.value.as_ref().unwrap() }
-    pub fn set(&mut self, v: T) { self.value = Some(v); }
-    pub fn clear(&mut self) { self.value = None; }
-}
-
 /// Operational dataset — mirrors C++ ThreadDataset.
-/// Fields are Optional because only set fields are present in the
-/// Spinel frame.
-#[derive(Debug, Clone)]
+///
+/// Fields are `Option<T>` because only set fields are present in the
+/// Spinel frame. Rust's built-in `Option<T>` replaces the C++
+/// `ThreadDataset::Optional<T>` wrapper — no custom type is needed.
+#[derive(Debug, Clone, Default)]
 pub struct OperationalDataset {
-    pub active_timestamp: OptionalField<u64>,
-    pub pending_timestamp: OptionalField<u64>,
-    pub master_key: OptionalField<Vec<u8>>,
-    pub network_name: OptionalField<String>,
-    pub extended_pan_id: OptionalField<Vec<u8>>,
-    pub mesh_local_prefix: OptionalField<Ipv6Net>,
-    pub delay: OptionalField<u32>,
-    pub pan_id: OptionalField<u16>,
-    pub channel: OptionalField<u8>,
-    pub pskc: OptionalField<Vec<u8>>,
-    pub channel_mask_page0: OptionalField<u32>,
-    pub security_policy: OptionalField<SecurityPolicy>,
-    pub raw_tlvs: OptionalField<Vec<u8>>,
-    pub dest_ip_address: OptionalField<Ipv6Addr>,
+    pub active_timestamp: Option<u64>,
+    pub pending_timestamp: Option<u64>,
+    pub master_key: Option<Vec<u8>>,
+    pub network_name: Option<String>,
+    pub extended_pan_id: Option<Vec<u8>>,
+    pub mesh_local_prefix: Option<Ipv6Net>,
+    pub delay: Option<u32>,
+    pub pan_id: Option<u16>,
+    pub channel: Option<u8>,
+    pub pskc: Option<Vec<u8>>,
+    pub channel_mask_page0: Option<u32>,
+    pub security_policy: Option<SecurityPolicy>,
+    pub raw_tlvs: Option<Vec<u8>>,
+    pub dest_ip_address: Option<Ipv6Addr>,
 }
 
 impl OperationalDataset {
-    pub fn new() -> Self { /* all fields OptionalField::new() */ }
-    pub fn clear(&mut self) { /* all fields .clear() */ }
-
-    /// Decode a Spinel frame payload into the dataset.
+    /// Decode a Spinel frame payload into a new dataset.
     /// Wire format: A(t(iD)) — concatenated length-prefixed structs.
-    pub fn set_from_spinel_frame(&mut self, data: &[u8])
-        -> Result<(), SpinelError>
+    ///
+    /// Rust idiom: associated `from_*` constructor (replaces C++
+    /// `clear()` + `set_from_spinel_frame()`).
+    pub fn from_spinel_frame(data: &[u8])
+        -> Result<Self, SpinelError>
     {
+        let mut dataset = Self::default();
         let mut reader = PackReader::new(data);
-        self.clear();
         while !reader.is_empty() {
             let entry = reader.read_struct()?;
             let mut sub = PackReader::new(entry);
             let prop_key = sub.read_uint_packed()?;
             let value = sub.read_bytes(sub.remaining())?;
-            self.parse_entry(prop_key, value)?;
+            dataset.parse_entry(prop_key, value)?;
         }
-        Ok(())
+        Ok(dataset)
     }
 
     fn parse_entry(&mut self, key: u32, value: &[u8])
@@ -305,55 +293,54 @@ impl OperationalDataset {
         let mut r = PackReader::new(value);
         match key {
             prop::DATASET_ACTIVE_TIMESTAMP => {
-                self.active_timestamp.set(r.read_uint64()?);
+                self.active_timestamp = Some(r.read_uint64()?);
             }
             prop::NET_MASTER_KEY => {
-                self.master_key.set(value.to_vec());
+                self.master_key = Some(value.to_vec());
             }
             prop::NET_NETWORK_NAME => {
-                self.network_name.set(r.read_utf8()?);
+                self.network_name = Some(r.read_utf8()?);
             }
             prop::NET_XPANID => {
-                self.extended_pan_id.set(value.to_vec());
+                self.extended_pan_id = Some(value.to_vec());
             }
             prop::IPV6_ML_PREFIX => {
-                let addr = r.read_ipv6()?;
-                let prefix_len = r.read_u8()?;
-                let net = Ipv6Net::new(addr.into(), prefix_len)?;
-                self.mesh_local_prefix.set(net);
+                let addr = Ipv6Addr::from(r.read_ipv6()?);
+                let prefix_len = r.read_uint8()?;
+                let net = Ipv6Net::new(addr, prefix_len)?;
+                self.mesh_local_prefix = Some(net);
             }
             prop::MAC_15_4_PANID => {
-                self.pan_id.set(r.read_uint16()?);
+                self.pan_id = Some(r.read_uint16()?);
             }
             prop::PHY_CHAN => {
-                self.channel.set(r.read_uint8()?);
+                self.channel = Some(r.read_uint8()?);
             }
             prop::NET_PSKC => {
-                self.pskc.set(value.to_vec());
+                self.pskc = Some(value.to_vec());
             }
             prop::PHY_CHAN_SUPPORTED => {
                 let mut mask: u32 = 0;
                 for &ch in value {
                     if ch <= 31 { mask |= 1u32 << ch; }
                 }
-                self.channel_mask_page0.set(mask);
+                self.channel_mask_page0 = Some(mask);
             }
             prop::DATASET_SECURITY_POLICY => {
-                self.security_policy.set(SecurityPolicy {
+                self.security_policy = Some(SecurityPolicy {
                     key_rotation_time: r.read_uint16()?,
                     flags: r.read_uint8()?,
                 });
             }
             prop::DATASET_RAW_TLVS => {
-                self.raw_tlvs.set(value.to_vec());
+                self.raw_tlvs = Some(value.to_vec());
             }
             prop::DATASET_DELAY_TIMER => {
-                self.delay.set(r.read_uint32()?);
+                self.delay = Some(r.read_uint32()?);
             }
             prop::DATASET_DEST_ADDRESS => {
-                self.dest_ip_address.set(
-                    Ipv6Addr::from(r.read_ipv6()?)
-                );
+                self.dest_ip_address =
+                    Some(Ipv6Addr::from(r.read_ipv6()?));
             }
             _ => { /* unknown key — log and skip */ }
         }
@@ -362,12 +349,16 @@ impl OperationalDataset {
 
     /// Serialize the dataset to a Spinel frame payload.
     /// Wire format: A(t(iD)).
-    pub fn convert_to_spinel_frame(&self, include_values: bool)
+    ///
+    /// Rust idiom: `to_*` conversion method (replaces C++
+    /// `convert_to_spinel_frame()`). Use `include_values = false`
+    /// to write only the property keys (no values).
+    pub fn to_spinel_frame(&self, include_values: bool)
         -> Vec<u8>
     {
         let mut frame = PackWriter::new();
-        // For each set field, write a struct entry:
-        //   start = frame.write_struct_start();
+        // For each Some(field), write a struct entry:
+        //   let start = frame.write_struct_start();
         //   frame.write_uint_packed(prop_key);
         //   if include_values { write field value }
         //   frame.write_struct_end(start);
@@ -375,16 +366,16 @@ impl OperationalDataset {
     }
 
     /// Convert to D-Bus ValueMap (Dataset:AsValMap).
-    pub fn convert_to_valuemap(&self) -> HashMap<String, Variant> {
+    pub fn to_valuemap(&self) -> HashMap<String, Variant> {
         let mut map = HashMap::new();
-        // One entry per field with has_value() check
+        // One entry per Some(field)
         map
     }
 
     /// Convert to string list (Dataset:AllFields).
-    pub fn convert_to_string_list(&self) -> Vec<String> {
+    pub fn to_string_list(&self) -> Vec<String> {
         let mut list = Vec::new();
-        // One entry per field, matching C formatting:
+        // One entry per Some(field), matching C formatting:
         //   "%-32s =  0x%08X%08X" for timestamps
         //   "%-32s =  [%s]" for byte arrays
         //   "%-32s =  %d" for integers
@@ -455,14 +446,15 @@ before the generic property lookup:
 ```rust
 // Inside handle_get_property or the properties module:
 match name {
-    "Dataset:ActiveTimestamp" if self.dataset.active_timestamp.has_value() =>
+    "Dataset:ActiveTimestamp" if self.dataset.active_timestamp.is_some() =>
         Ok(format!("0x{:08X}{:08X}", ...)),
-    "Dataset:MasterKey" if self.dataset.master_key.has_value() =>
-        Ok(format!("[{}]", hex::encode(self.dataset.master_key.get()))),
+    "Dataset:MasterKey" if self.dataset.master_key.is_some() =>
+        Ok(format!("[{}]",
+            hex::encode(self.dataset.master_key.as_ref().unwrap()))),
     "Dataset:AllFields" | "Dataset" =>
-        Ok(self.dataset.convert_to_string_list().join("\n")),
+        Ok(self.dataset.to_string_list().join("\n")),
     "Dataset:AsValMap" | "Thread:ActiveDataset:AsValMap" =>
-        Ok(serde_json::to_string(&self.dataset.convert_to_valuemap())?),
+        Ok(serde_json::to_string(&self.dataset.to_valuemap())?),
     _ if self.vendor_ext.is_property_key_supported(name) =>
         self.vendor_ext.property_get_value(name)?,
     _ => Err(DaemonError::UnknownProperty(name.into())),
@@ -482,20 +474,19 @@ not allow setting individual dataset fields through D-Bus.
 ```rust
 #[test]
 fn dataset_round_trip() {
-    let mut ds = OperationalDataset::new();
-    ds.pan_id.set(0xABCD);
-    ds.channel.set(1);
-    ds.network_name.set("TestNet".into());
-    ds.master_key.set(vec![0u8; 16]);
+    let mut ds = OperationalDataset::default();
+    ds.pan_id = Some(0xABCD);
+    ds.channel = Some(1);
+    ds.network_name = Some("TestNet".into());
+    ds.master_key = Some(vec![0u8; 16]);
 
-    let frame = ds.convert_to_spinel_frame(true);
-    let mut decoded = OperationalDataset::new();
-    decoded.set_from_spinel_frame(&frame).unwrap();
+    let frame = ds.to_spinel_frame(true);
+    let decoded = OperationalDataset::from_spinel_frame(&frame).unwrap();
 
-    assert_eq!(*decoded.pan_id.get(), 0xABCD);
-    assert_eq!(*decoded.channel.get(), 1);
-    assert_eq!(decoded.network_name.get(), "TestNet");
-    assert_eq!(decoded.master_key.get(), &vec![0u8; 16]);
+    assert_eq!(decoded.pan_id, Some(0xABCD));
+    assert_eq!(decoded.channel, Some(1));
+    assert_eq!(decoded.network_name.as_deref(), Some("TestNet"));
+    assert_eq!(decoded.master_key.as_deref(), Some(&vec![0u8; 16][..]));
 }
 ```
 
@@ -504,12 +495,12 @@ fn dataset_round_trip() {
 ```rust
 #[test]
 fn dataset_string_list_matches_c_format() {
-    let mut ds = OperationalDataset::new();
-    ds.pan_id.set(0xABCD);
-    ds.channel.set(1);
-    ds.network_name.set("TestNet".into());
+    let mut ds = OperationalDataset::default();
+    ds.pan_id = Some(0xABCD);
+    ds.channel = Some(1);
+    ds.network_name = Some("TestNet".into());
 
-    let list = ds.convert_to_string_list();
+    let list = ds.to_string_list();
     assert!(list.iter().any(|s|
         s.contains("Dataset:PanId") && s.contains("0xABCD")
     ));
@@ -521,14 +512,13 @@ fn dataset_string_list_matches_c_format() {
 ```rust
 #[test]
 fn channel_mask_page0_byte_array_encoding() {
-    let mut ds = OperationalDataset::new();
-    ds.channel_mask_page0.set(0b101);  // channels 0 and 2
+    let mut ds = OperationalDataset::default();
+    ds.channel_mask_page0 = Some(0b101);  // channels 0 and 2
 
-    let frame = ds.convert_to_spinel_frame(true);
-    let mut decoded = OperationalDataset::new();
-    decoded.set_from_spinel_frame(&frame).unwrap();
+    let frame = ds.to_spinel_frame(true);
+    let decoded = OperationalDataset::from_spinel_frame(&frame).unwrap();
 
-    assert_eq!(*decoded.channel_mask_page0.get(), 0b101);
+    assert_eq!(decoded.channel_mask_page0, Some(0b101));
 }
 ```
 
@@ -537,16 +527,15 @@ fn channel_mask_page0_byte_array_encoding() {
 ```rust
 #[test]
 fn partial_dataset_only_present_fields_decode() {
-    let mut ds = OperationalDataset::new();
-    ds.channel.set(25);
+    let mut ds = OperationalDataset::default();
+    ds.channel = Some(25);
 
-    let frame = ds.convert_to_spinel_frame(true);
-    let mut decoded = OperationalDataset::new();
-    decoded.set_from_spinel_frame(&frame).unwrap();
+    let frame = ds.to_spinel_frame(true);
+    let decoded = OperationalDataset::from_spinel_frame(&frame).unwrap();
 
-    assert_eq!(*decoded.channel.get(), 25);
-    assert!(!decoded.pan_id.has_value());
-    assert!(!decoded.network_name.has_value());
+    assert_eq!(decoded.channel, Some(25));
+    assert_eq!(decoded.pan_id, None);
+    assert_eq!(decoded.network_name, None);
 }
 ```
 
@@ -555,11 +544,11 @@ fn partial_dataset_only_present_fields_decode() {
 ```rust
 #[test]
 fn dataset_valmap_keys_match_wpan_properties() {
-    let mut ds = OperationalDataset::new();
-    ds.pan_id.set(0xABCD);
-    ds.channel.set(1);
+    let mut ds = OperationalDataset::default();
+    ds.pan_id = Some(0xABCD);
+    ds.channel = Some(1);
 
-    let map = ds.convert_to_valuemap();
+    let map = ds.to_valuemap();
     assert!(map.contains_key("Dataset:PanId"));
     assert!(map.contains_key("Dataset:Channel"));
 }
@@ -581,10 +570,10 @@ fn noop_vendor_extension_returns_not_supported() {
 
 - [ ] Every `SPINEL_PROP_DATASET_*` constant is defined in `dataset.rs::prop`
 - [ ] Every `kWPANTUNDProperty_Dataset*` maps to a D-Bus property key string
-- [ ] `set_from_spinel_frame` / `convert_to_spinel_frame` round-trip for all 14 fields
+- [ ] `from_spinel_frame` / `to_spinel_frame` round-trip for all 14 fields
 - [ ] `ChannelMaskPage0` byte-array encoding matches C (not bitmask)
-- [ ] `convert_to_string_list` format matches C exactly (`%-32s =  value`)
-- [ ] `convert_to_valuemap` keys match `wpan-properties.h:202-220`
+- [ ] `to_string_list` format matches C exactly (`%-32s =  value`)
+- [ ] `to_valuemap` keys match `wpan-properties.h:202-220`
 - [ ] Partial datasets (not all fields present) decode correctly
 - [ ] `NoOpVendorExtension` is documented as the extension point stub
 - [ ] `cargo test` passes (6+ tests)

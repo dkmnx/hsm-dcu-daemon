@@ -11,9 +11,7 @@ mock-pty = ["dep:portable-pty"]
 spinel = { path = "../spinel" }
 tokio = { workspace = true, features = ["io-util", "net", "rt", "macros"] }
 tokio-serial = "5"
-tokio-util = { version = "0.7", features = ["io"] }
 portable-pty = { version = "0.8", optional = true }
-tracing = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

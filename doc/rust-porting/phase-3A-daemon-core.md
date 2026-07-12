@@ -744,7 +744,6 @@ dcu-dbus = { path = "../dcu-dbus" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["time"] }
 clap = { version = "4", features = ["derive"] }
-async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "2"

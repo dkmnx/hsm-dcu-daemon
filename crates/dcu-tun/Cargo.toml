@@ -9,7 +9,6 @@ tokio = { workspace = true, features = ["net", "io-util"] }
 nix = { workspace = true, features = ["net", "socket"] }
 libc = "0.2"
 ipnet = "2"
-tracing = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

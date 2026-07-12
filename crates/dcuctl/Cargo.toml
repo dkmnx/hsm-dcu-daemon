@@ -5,7 +5,6 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
-wisun-types = { path = "../wisun-types" }
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"
 zbus = "4"

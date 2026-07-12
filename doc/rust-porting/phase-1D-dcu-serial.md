@@ -64,20 +64,23 @@ dcu-serial/
 ### `transport.rs`
 
 ```rust
-use async_trait::async_trait;
+use std::os::unix::io::RawFd;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Transport abstraction for NCP communication.
 /// Implementations: UART, Unix socket, PTY.
-#[async_trait]
+///
+/// Note: native async traits (Rust 1.75+) — no `async_trait` crate
+/// needed. The trait methods are all synchronous; async behavior comes
+/// from the `AsyncRead`/`AsyncWrite` supertraits.
 pub trait Transport: AsyncRead + AsyncWrite + Send + Unpin + 'static {
-    /// Get the underlying file descriptor (for select/poll integration).
-    fn raw_fd(&self) -> Option<std::os::unix::io::RawFd>;
+    /// Get the underlying file descriptor, if available (for event-loop
+    /// integration / `AsyncFd` registration).
+    fn raw_fd(&self) -> Option<RawFd> {
+        None
+    }
 
-    /// Check if data is available to read.
-    fn can_read(&self) -> bool;
-
-    /// Get the port/baud rate info for logging.
+    /// Human-readable identifier for logging (e.g. "UART:/dev/ttyUSB0@115200").
     fn info(&self) -> String;
 }
 
@@ -121,10 +124,6 @@ impl UartTransport {
 impl Transport for UartTransport {
     fn raw_fd(&self) -> Option<RawFd> {
         Some(self.inner.as_raw_fd())
-    }
-
-    fn can_read(&self) -> bool {
-        self.inner.bytes_to_read().unwrap_or(0) > 0
     }
 
     fn info(&self) -> String {
@@ -319,7 +318,6 @@ spinel = { path = "../spinel" }
 tokio = { version = "1", features = ["io-util", "net", "time"] }
 tokio-serial = "5"
 tokio-util = { version = "0.7", features = ["io"] }
-async-trait = "0.1"
 thiserror = "2"
 tracing = "0.1"
 

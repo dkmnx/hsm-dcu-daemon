@@ -58,18 +58,15 @@ impl PtyTransport {
     /// Wrap a `PtyPair`'s master into a transport suitable for
     /// `FramedTransport`.
     pub fn from_pair(pair: &PtyPair) -> Self {
-        // We use the master pty's reader/writer traits.
-        // MasterPty does not directly implement tokio IO, so we can't
-        // easily delegate. Instead we store the pty handle and use it
-        // as the raw transport; the daemon connects via the slave path.
-        //
-        // Full async integration requires a PTY that exposes tokio
-        // AsyncRead/AsyncWrite — portable-pty does not provide this.
-        // For now, keep the slave path as the connection point and
-        // expose PtyTransport as a stub.
         Self {
-            reader: pair.master.try_clone_master().unwrap(),
-            writer: pair.master.try_clone_master().unwrap(),
+            reader: pair
+                .master
+                .try_clone_master()
+                .expect("PTY try_clone_master for reader failed"),
+            writer: pair
+                .master
+                .try_clone_master()
+                .expect("PTY try_clone_master for writer failed"),
         }
     }
 }

@@ -14,7 +14,6 @@ dcu-dbus = { path = "../dcu-dbus" }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { version = "0.7", features = ["time"] }
 clap = { version = "4", features = ["derive"] }
-async-trait = "0.1"
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
 thiserror = { workspace = true }

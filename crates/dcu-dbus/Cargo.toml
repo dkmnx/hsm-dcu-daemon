@@ -9,10 +9,6 @@ zbus = { version = "4", features = ["tokio"] }
 zvariant = { version = "4", features = ["enumflags2"] }
 wisun-types = { path = "../wisun-types" }
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
-serde = { workspace = true }
-serde_json = "1"
-tracing = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["sync", "rt", "macros", "net", "rt-multi-thread"] }
