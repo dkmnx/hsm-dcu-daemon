@@ -1,4 +1,4 @@
-//! Error types for the `dcu-daemon` crate.
+//! Error types for the `dcu-tunnel-daemon` crate.
 
 /// Top-level error type for the daemon.
 #[derive(Debug, thiserror::Error)]

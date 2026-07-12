@@ -1,4 +1,4 @@
-# Rust Porting Plan: hsm-dcu-daemon
+# Rust Porting Plan: hsm-dcu-tunnel-daemon
 
 ## Overview
 
@@ -31,7 +31,7 @@ wisun-dcu/                    (workspace root)
 │   ├── dcu-tun/              (TUN interface management)
 │   ├── dcu-serial/           (UART/serial transport)
 │   ├── dcu-dbus/             (D-Bus API server)
-│   ├── dcu-daemon/           (main daemon binary)
+│   ├── dcu-tunnel-daemon/           (main daemon binary)
 │   ├── dcuctl/               (CLI binary)
 │   └── dcu-mock/             (mock NCP for testing)
 └── doc/
@@ -48,9 +48,9 @@ wisun-dcu/                    (workspace root)
 | 1D      | [phase-1D-dcu-serial.md](phase-1D-dcu-serial.md)                   | `dcu-serial`         | 3-4 days   | Done (2d24fe3)            |
 | 2A      | [phase-2A-dcu-dbus.md](phase-2A-dcu-dbus.md)                       | `dcu-dbus`           | 5-7 days   | Done (fd357ce)            |
 | 2B      | [phase-2B-dcuctl.md](phase-2B-dcuctl.md)                           | `dcuctl`             | 5-7 days   | Done (303ef83)            |
-| 3A      | [phase-3A-daemon-core.md](phase-3A-daemon-core.md)                 | `dcu-daemon`         | 14-21 days | Done (2d24fe3)            |
-| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md)               | `dcu-daemon` tasks   | 7-10 days  | Done (ffc8b81)            |
-| 3C      | [phase-3C-operational-dataset.md](phase-3C-operational-dataset.md) | `dcu-daemon` dataset | 3-4 days   | Implemented (uncommitted) |
+| 3A      | [phase-3A-daemon-core.md](phase-3A-daemon-core.md)                 | `dcu-tunnel-daemon`         | 14-21 days | Done (2d24fe3)            |
+| 3B      | [phase-3B-spinel-tasks.md](phase-3B-spinel-tasks.md)               | `dcu-tunnel-daemon` tasks   | 7-10 days  | Done (ffc8b81)            |
+| 3C      | [phase-3C-operational-dataset.md](phase-3C-operational-dataset.md) | `dcu-tunnel-daemon` dataset | 3-4 days   | Implemented (uncommitted) |
 | 4A      | [phase-4A-mock-ncp.md](phase-4A-mock-ncp.md)                       | `dcu-mock`           | 3-5 days   | Done (d1b8e80)            |
 | 4B      | [phase-4B-e2e-tests.md](phase-4B-e2e-tests.md)                     | Integration tests    | 3-5 days   | Done (91fa0c0)            |
 
@@ -67,7 +67,7 @@ wisun-types ──────────────────────�
     │    │                                       │
     │    ├── dcu-serial                          │
     │    │    │                                  │
-    │    │    └── dcu-daemon ──── dcu-dbus ── dcuctl
+    │    │    └── dcu-tunnel-daemon ──── dcu-dbus ── dcuctl
     │    │         │
     │    │         ├── dcu-tun
     │    │         └── dcu-mock (dev-dependency)

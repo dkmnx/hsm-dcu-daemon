@@ -10,8 +10,8 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use dcu_daemon::NcpInstance;
-use dcu_daemon::config::Config;
+use dcu_tunnel_daemon::NcpInstance;
+use dcu_tunnel_daemon::config::Config;
 use dcu_dbus::{DaemonState, DbusServer};
 
 #[derive(Parser)]

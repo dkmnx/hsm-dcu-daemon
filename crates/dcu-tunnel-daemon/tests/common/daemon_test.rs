@@ -18,8 +18,8 @@ use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use dcu_daemon::config::Config;
-use dcu_daemon::instance::NcpInstance;
+use dcu_tunnel_daemon::config::Config;
+use dcu_tunnel_daemon::instance::NcpInstance;
 use dcu_dbus::DaemonState;
 use dcu_dbus::commands::Command;
 use dcu_mock::builder::MockNcpBuilder;
@@ -29,12 +29,12 @@ use dcu_mock::topology::MockTopology;
 /// Error type for test helpers.
 #[derive(Debug)]
 pub enum TestError {
-    Daemon(dcu_daemon::DaemonError),
+    Daemon(dcu_tunnel_daemon::DaemonError),
     Timeout,
 }
 
-impl From<dcu_daemon::DaemonError> for TestError {
-    fn from(e: dcu_daemon::DaemonError) -> Self {
+impl From<dcu_tunnel_daemon::DaemonError> for TestError {
+    fn from(e: dcu_tunnel_daemon::DaemonError) -> Self {
         TestError::Daemon(e)
     }
 }

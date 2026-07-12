@@ -1,4 +1,4 @@
-# Phase 3B: `dcu-daemon` — Spinel Tasks
+# Phase 3B: `dcu-tunnel-daemon` — Spinel Tasks
 
 ## Overview
 
@@ -184,7 +184,7 @@ These exist and are correct; phase 3B consumes them, it does not rebuild them.
 > proposed an `EventDrivenTask` trait with `process_event() -> TaskProgress`, a
 > `TaskQueue`, an `NcpEvent` enum, and `dispatch_event()`/`schedule_next_task()`
 > on the instance. **That design was discarded before any of it landed in the
-> code** — `grep` confirms none of those symbols exist in `crates/dcu-daemon`.
+> code** — `grep` confirms none of those symbols exist in `crates/dcu-tunnel-daemon`.
 > There is nothing to remove; this phase simply never introduces them.
 
 ## Prerequisites (fill in before/early in phase 3B)
@@ -403,7 +403,7 @@ pub async fn handle_command(&mut self, cmd: dcu_dbus::commands::Command) -> Resu
 ## Module layout (phase 3B additions)
 
 ```text
-dcu-daemon/src/
+dcu-tunnel-daemon/src/
 ├── instance/
 │   └── base.rs          # +wait_for_state(), +scan-collector slot, handle_command wired
 ├── tasks/

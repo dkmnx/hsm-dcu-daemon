@@ -248,7 +248,7 @@ pub struct NcpInstanceBase {
 
     /// Shared D-Bus daemon state. The frame task mirrors the live operational
     /// dataset into `DaemonState.dataset` so `Dataset:*` property reads stay
-    /// current without the D-Bus layer depending on `dcu-daemon` internals.
+    /// current without the D-Bus layer depending on `dcu-tunnel-daemon` internals.
     shared_state: Arc<RwLock<dcu_dbus::DaemonState>>,
 
     #[allow(dead_code)]

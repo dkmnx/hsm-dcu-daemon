@@ -84,7 +84,7 @@ porting plan, crate architecture, and dependency map.
 
 - **Rust port phases**: 10 phases from `wisun-types`
   → `spinel` → `dcu-tun`/`dcu-serial` → `dcu-dbus`/
-  `dcuctl` → `dcu-daemon` core → tasks → mock → e2e.
+  `dcuctl` → `dcu-tunnel-daemon` core → tasks → mock → e2e.
   See `doc/rust-porting/` for per-phase specs.
 - **Property key constants**: Defined once via
   `declare_property_keys!` macro in

@@ -115,9 +115,9 @@ but appear in no phase doc** — or were gaps that are now resolved.
   (`wpan-properties.h:183,185`).
 - **Status: RESOLVED.** Phase-3C doc (`phase-3C-operational-dataset.md`)
   now covers the full codec with corrected spinel.h property IDs. The Rust
-  port lives in `crates/dcu-daemon/src/dataset.rs` (`OperationalDataset`
+  port lives in `crates/dcu-tunnel-daemon/src/dataset.rs` (`OperationalDataset`
   with `Option<T>` fields, `from_spinel_frame` / `to_spinel_frame` /
-  `to_valuemap` / `to_string_list`) and `crates/dcu-daemon/src/vendor_ext.rs`
+  `to_valuemap` / `to_string_list`) and `crates/dcu-tunnel-daemon/src/vendor_ext.rs`
   (no-op `VendorExtension` stub). The 20 `Dataset:*` keys are registered in
   `wisun-types::property_key`, served from `dcu-dbus::properties`, and
   incoming `PROP_VALUE_IS` dataset frames are decoded in the NCP instance

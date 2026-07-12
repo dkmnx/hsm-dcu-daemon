@@ -376,28 +376,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dcu-daemon"
-version = "0.1.0"
-dependencies = [
- "clap",
- "dcu-dbus",
- "dcu-mock",
- "dcu-serial",
- "dcu-tun",
- "hex",
- "ipnet",
- "shell-words",
- "spinel",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "wisun-types",
- "zbus",
-]
-
-[[package]]
 name = "dcu-dbus"
 version = "0.1.0"
 dependencies = [
@@ -442,6 +420,28 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "dcu-tunnel-daemon"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "dcu-dbus",
+ "dcu-mock",
+ "dcu-serial",
+ "dcu-tun",
+ "hex",
+ "ipnet",
+ "shell-words",
+ "spinel",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "wisun-types",
+ "zbus",
 ]
 
 [[package]]

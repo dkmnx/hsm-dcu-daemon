@@ -1,4 +1,4 @@
-# Phase 3A: `dcu-daemon` — Core State Machine
+# Phase 3A: `dcu-tunnel-daemon` — Core State Machine
 
 ## Overview
 
@@ -38,7 +38,7 @@ event loop with select/poll→tokio migration, fork()→Command rewrite, and con
 ## Crate Structure
 
 ```text
-dcu-daemon/
+dcu-tunnel-daemon/
 ├── Cargo.toml
 └── src/
     ├── main.rs                 # Entry point, signal handling
@@ -224,8 +224,8 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use clap::Parser;
-use dcu_daemon::config::Config;
-use dcu_daemon::instance::NcpInstance;
+use dcu_tunnel_daemon::config::Config;
+use dcu_tunnel_daemon::instance::NcpInstance;
 use dcu_dbus::{DbusServer, DaemonState};
 
 #[derive(Parser)]
@@ -622,7 +622,7 @@ seconds. `update()` decays the count after `kDecayPeriod = 15s` — we stub
 passing.
 
 ```rust
-use dcu_daemon::tasks::backoff::BackoffManager;
+use dcu_tunnel_daemon::tasks::backoff::BackoffManager;
 
 #[test]
 fn runaway_reset_backoff_quadratic() {
@@ -685,7 +685,7 @@ async fn address_add_remove() {
 use tokio_util::sync::CancellationToken;
 use dcu_serial::pty::PtyPair;
 use dcu_mock::Config;
-use dcu_daemon::instance::NcpInstance;
+use dcu_tunnel_daemon::instance::NcpInstance;
 
 #[tokio::test]
 async fn daemon_starts_with_mock() {
@@ -721,7 +721,7 @@ preferred.
 
 ```rust
 use dcu_mock::setup_mock_instance;
-use dcu_daemon::instance::NcpInstanceBase;
+use dcu_tunnel_daemon::instance::NcpInstanceBase;
 
 #[tokio::test]
 async fn status_command() {

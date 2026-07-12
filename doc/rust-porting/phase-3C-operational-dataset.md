@@ -1,4 +1,4 @@
-# Phase 3C: `dcu-daemon` — Operational Dataset + Vendor Extension Point
+# Phase 3C: `dcu-tunnel-daemon` — Operational Dataset + Vendor Extension Point
 
 ## Overview
 
@@ -174,10 +174,10 @@ individual bytes.
 
 ## Crate Structure
 
-This phase adds to the existing `dcu-daemon` crate (no new crate):
+This phase adds to the existing `dcu-tunnel-daemon` crate (no new crate):
 
 ```text
-dcu-daemon/src/
+dcu-tunnel-daemon/src/
 ├── instance/
 │   └── base.rs          # +dataset field, +dataset property handlers
 ├── tasks/

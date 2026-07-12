@@ -1,7 +1,7 @@
 # Implementation Plan: Phase 1C `dcu-tun` — TUN Interface Crate
 
 **Status:** Implemented (2026-07-10). All 8 verification steps pass: `cargo build`, `cargo clippy -D warnings`, and `cargo test` (4 passed, 2 ignored).
-**Goal:** Port `src/util/tunnel.c`, `tunnel.h`, `TunnelIPv6Interface.*`, `netif-mgmt.c`, `IPv6Helpers.cpp` to a new `crates/dcu-tun` Rust crate that the `dcu-daemon` (phase 3A) depends on.
+**Goal:** Port `src/util/tunnel.c`, `tunnel.h`, `TunnelIPv6Interface.*`, `netif-mgmt.c`, `IPv6Helpers.cpp` to a new `crates/dcu-tun` Rust crate that the `dcu-tunnel-daemon` (phase 3A) depends on.
 
 ---
 

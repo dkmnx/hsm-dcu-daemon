@@ -1,4 +1,4 @@
-//! Task module declarations for `dcu-daemon`.
+//! Task module declarations for `dcu-tunnel-daemon`.
 //!
 //! - `backoff` — RunawayResetBackoffManager (windowed quadratic delay)
 //! - `send_command` — command status constants

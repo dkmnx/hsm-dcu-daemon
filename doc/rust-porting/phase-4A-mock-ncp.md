@@ -52,7 +52,7 @@ dcu-mock/
     └── builder.rs           # MockNcpBuilder
 ```
 
-`dcu-mock` is a workspace crate. It is a **dev-dependency** of `dcu-daemon` and
+`dcu-mock` is a workspace crate. It is a **dev-dependency** of `dcu-tunnel-daemon` and
 `spinel` (for integration tests) and an optional runtime dependency if the
 daemon ever supports a `--mock-ncp` mode.
 
@@ -683,7 +683,7 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-dcu-daemon = { path = "../dcu-daemon" }     # For full-stack integration tests
+dcu-tunnel-daemon = { path = "../dcu-tunnel-daemon" }     # For full-stack integration tests
 
 [lints]
 workspace = true
@@ -717,7 +717,7 @@ workspace = true
    C bitmask format.
 
 5. **State-change notifications need a channel or polling.** The `wait_for_state`
-   helper in `dcu-daemon` (phase 3B) uses `tokio::sync::Notify`. The mock can
+   helper in `dcu-tunnel-daemon` (phase 3B) uses `tokio::sync::Notify`. The mock can
    either emit unsolicited `PROP_VALUE_IS(NET_STATE, ...)` frames and let the
    daemon's `run()` loop call `state_changed.notify_waiters()`, or the test can
    poll frames directly. The test helpers in this doc poll frames for simplicity;

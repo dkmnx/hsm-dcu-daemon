@@ -8,7 +8,7 @@ Full integration tests that verify the complete system: daemon + CLI + mock NCP.
 
 ## What's already in place
 
-- `dcu-daemon` crate is implemented with `NcpInstance` (`crates/dcu-daemon/src/instance/mod.rs`).
+- `dcu-tunnel-daemon` crate is implemented with `NcpInstance` (`crates/dcu-tunnel-daemon/src/instance/mod.rs`).
   The public API is:
   ```rust
   NcpInstance::new(config: Config) -> Result<NcpInstance, DaemonError>
@@ -62,8 +62,8 @@ tests/
     └── get_version.txt        # Expected version output
 ```
 
-Integration tests are added to the `dcu-daemon` crate as integration tests under
-`crates/dcu-daemon/tests/`. They use `dcu-mock` as a dev-dependency and `dcuctl` as a
+Integration tests are added to the `dcu-tunnel-daemon` crate as integration tests under
+`crates/dcu-tunnel-daemon/tests/`. They use `dcu-mock` as a dev-dependency and `dcuctl` as a
 binary fixture (`CARGO_BIN_EXE_dcuctl`).
 
 ## Test Specs
@@ -93,7 +93,7 @@ impl NcpInstance {
 This method mirrors `start_pumps()` but skips opening the UART/PTY and uses the
 provided `T`. For PTY-based tests, the regular `start_pumps()` path opens the
 slave path while the mock owns the master. Integration tests must enable the
-`test-util` feature on `dcu-daemon` (add it to `Cargo.toml` as a dev-dependency
+`test-util` feature on `dcu-tunnel-daemon` (add it to `Cargo.toml` as a dev-dependency
 feature).
 
 ### `daemon_startup.rs`
@@ -486,8 +486,8 @@ use std::time::Duration;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use dcu_daemon::config::Config;
-use dcu_daemon::instance::NcpInstance;
+use dcu_tunnel_daemon::config::Config;
+use dcu_tunnel_daemon::instance::NcpInstance;
 use dcu_dbus::{DbusServer, DaemonState, commands::Command};
 use dcu_mock::builder::MockNcpBuilder;
 use dcu_mock::failure::FailureRule;
@@ -713,7 +713,7 @@ fn current_test_bus_address() -> String {
 
 ## Implementation notes (read before implementing)
 
-1. **This is a spec, not code.** The `dcu-daemon` integration tests and `dcu-mock` crate do not exist
+1. **This is a spec, not code.** The `dcu-tunnel-daemon` integration tests and `dcu-mock` crate do not exist
    yet. The `TestDaemon` helper is a design target; the implementer must resolve ownership/lifetime
    details (e.g. how to reclaim `NcpInstance` from the `run()` task for shutdown).
 
