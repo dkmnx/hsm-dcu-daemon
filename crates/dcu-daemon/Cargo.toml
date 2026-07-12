@@ -19,6 +19,7 @@ tracing = { workspace = true }
 tracing-subscriber = "0.3"
 thiserror = { workspace = true }
 shell-words = "1"
+zbus = { workspace = true }
 
 [dev-dependencies]
 

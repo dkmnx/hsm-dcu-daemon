@@ -52,12 +52,20 @@ impl UartTransport {
                 6 => tokio_serial::DataBits::Six,
                 7 => tokio_serial::DataBits::Seven,
                 8 => tokio_serial::DataBits::Eight,
-                _ => return Err(SerialError::InvalidConfig("data bits must be 5-8".to_string())),
+                _ => {
+                    return Err(SerialError::InvalidConfig(
+                        "data bits must be 5-8".to_string(),
+                    ));
+                }
             })
             .stop_bits(match config.stop_bits {
                 1 => tokio_serial::StopBits::One,
                 2 => tokio_serial::StopBits::Two,
-                _ => return Err(SerialError::InvalidConfig("stop bits must be 1 or 2".to_string())),
+                _ => {
+                    return Err(SerialError::InvalidConfig(
+                        "stop bits must be 1 or 2".to_string(),
+                    ));
+                }
             })
             .flow_control(match config.flow_control {
                 true => tokio_serial::FlowControl::Hardware,

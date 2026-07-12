@@ -7,8 +7,8 @@
 //! `instance/base.rs`; this module exists as an extension point for complex
 //! multi-step command flows.
 
-use dcu_dbus::commands::Command;
 use crate::DaemonError;
+use dcu_dbus::commands::Command;
 
 /// Validate and prepare a command before dispatching it to the instance.
 /// Returns `Err` if the command cannot be run in the current state.

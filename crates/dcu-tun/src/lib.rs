@@ -76,30 +76,38 @@ mod tests {
 
     #[test]
     fn mtu_bounds_check() {
-        assert!(TunConfig {
-            name: "t".into(),
-            mtu: 1280,
-            no_packet_info: true
-        }
-        .is_valid());
-        assert!(TunConfig {
-            name: "t".into(),
-            mtu: 1200,
-            no_packet_info: true
-        }
-        .is_valid());
-        assert!(!TunConfig {
-            name: "t".into(),
-            mtu: 64,
-            no_packet_info: true
-        }
-        .is_valid());
-        assert!(!TunConfig {
-            name: "t".into(),
-            mtu: 65535,
-            no_packet_info: true
-        }
-        .is_valid());
+        assert!(
+            TunConfig {
+                name: "t".into(),
+                mtu: 1280,
+                no_packet_info: true
+            }
+            .is_valid()
+        );
+        assert!(
+            TunConfig {
+                name: "t".into(),
+                mtu: 1200,
+                no_packet_info: true
+            }
+            .is_valid()
+        );
+        assert!(
+            !TunConfig {
+                name: "t".into(),
+                mtu: 64,
+                no_packet_info: true
+            }
+            .is_valid()
+        );
+        assert!(
+            !TunConfig {
+                name: "t".into(),
+                mtu: 65535,
+                no_packet_info: true
+            }
+            .is_valid()
+        );
     }
 
     #[test]
@@ -135,14 +143,17 @@ mod tests {
         assert_eq!(header.next_header, 0x3A);
         assert_eq!(header.hop_limit, 64);
         assert_eq!(header.source, "2020:abcd::1".parse::<Ipv6Addr>().unwrap());
-        assert_eq!(header.destination, "2020:abcd::2".parse::<Ipv6Addr>().unwrap());
+        assert_eq!(
+            header.destination,
+            "2020:abcd::2".parse::<Ipv6Addr>().unwrap()
+        );
     }
 
     /// Build an IPv6 packet matching the spec Test 6 vector.
     fn build_test_packet() -> Vec<u8> {
         vec![
-            0x60, 0x00, 0x00, 0x00, 0x00, 0x10, 0x3A, 0x40, 0x20, 0x20, 0xAB, 0xCD, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 1, 0x20, 0x20, 0xAB, 0xCD, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+            0x60, 0x00, 0x00, 0x00, 0x00, 0x10, 0x3A, 0x40, 0x20, 0x20, 0xAB, 0xCD, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 1, 0x20, 0x20, 0xAB, 0xCD, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
         ]
     }
 }

@@ -108,9 +108,7 @@ pub fn set_interface_flags(fd: &impl AsRawFd, name: &str, flags: i32) -> Result<
 
 /// Returns `true` if the interface is administratively up.
 pub fn interface_is_up(fd: &impl AsRawFd, name: &str) -> Result<bool, TunError> {
-    Ok(
-        (get_interface_flags(fd, name)? & libc::IFF_UP) == libc::IFF_UP,
-    )
+    Ok((get_interface_flags(fd, name)? & libc::IFF_UP) == libc::IFF_UP)
 }
 
 /// Bring the interface up (`true`) or down (`false`). Down also clears
@@ -250,7 +248,10 @@ pub fn add_ipv6_route(
     let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCADDRT, &rt) };
     if ret < 0 {
         let err = std::io::Error::last_os_error();
-        if matches!(err.raw_os_error(), Some(libc::EALREADY) | Some(libc::EEXIST)) {
+        if matches!(
+            err.raw_os_error(),
+            Some(libc::EALREADY) | Some(libc::EEXIST)
+        ) {
             return Ok(());
         }
         return Err(TunError::Ioctl {
@@ -285,7 +286,10 @@ pub fn remove_ipv6_route(
     let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCDELRT, &rt) };
     if ret < 0 {
         let err = std::io::Error::last_os_error();
-        if matches!(err.raw_os_error(), Some(libc::EALREADY) | Some(libc::EEXIST)) {
+        if matches!(
+            err.raw_os_error(),
+            Some(libc::EALREADY) | Some(libc::EEXIST)
+        ) {
             return Ok(());
         }
         return Err(TunError::Ioctl {

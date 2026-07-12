@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
-use crate::config::Config;
 use crate::DaemonError;
+use crate::config::Config;
 
 pub mod base;
 pub use base::NcpInstanceBase;

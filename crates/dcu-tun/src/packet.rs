@@ -65,9 +65,7 @@ pub fn parse_ipv6_header(buf: &[u8]) -> Result<IPv6Header, TunError> {
 
     let version = buf[0] >> 4;
     let traffic_class = ((buf[0] & 0x0F) << 4) | (buf[1] >> 4);
-    let flow_label = (((buf[1] & 0x0F) as u32) << 16)
-        | ((buf[2] as u32) << 8)
-        | (buf[3] as u32);
+    let flow_label = (((buf[1] & 0x0F) as u32) << 16) | ((buf[2] as u32) << 8) | (buf[3] as u32);
     let payload_length = u16::from_be_bytes([buf[4], buf[5]]);
     let next_header = buf[6];
     let hop_limit = buf[7];

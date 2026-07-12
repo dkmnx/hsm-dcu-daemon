@@ -5,8 +5,8 @@
 //! The HDLC codec (`HdlcEncoder`/`HdlcDecoder`) lives in `spinel::hdlc` and
 //! is *not* re-implemented here — this module just adapts it for async I/O.
 
-use spinel::hdlc::{HdlcDecoder, HdlcEncoder};
 use spinel::frame::SpinelFrame;
+use spinel::hdlc::{HdlcDecoder, HdlcEncoder};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::SerialError;

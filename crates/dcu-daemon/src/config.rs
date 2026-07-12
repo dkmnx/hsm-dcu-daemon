@@ -86,9 +86,8 @@ impl Config {
                 continue;
             }
 
-            let (key, value) = split_key_value(line).map_err(|e| {
-                DaemonError::Config(format!("line {}: {}", lineno + 1, e))
-            })?;
+            let (key, value) = split_key_value(line)
+                .map_err(|e| DaemonError::Config(format!("line {}: {}", lineno + 1, e)))?;
 
             map.insert(key, value);
         }
@@ -110,9 +109,9 @@ impl Config {
             cfg.nc_socket_path = v.clone();
         }
         if let Some(v) = map.get("Config:NCP:SocketBaud") {
-            cfg.nc_socket_baud = v.parse().map_err(|e| {
-                DaemonError::Config(format!("Config:NCP:SocketBaud: {e}"))
-            })?;
+            cfg.nc_socket_baud = v
+                .parse()
+                .map_err(|e| DaemonError::Config(format!("Config:NCP:SocketBaud: {e}")))?;
         }
         if let Some(v) = map.get("Config:NCP:DriverName") {
             cfg.nc_driver_name = v.clone();
@@ -154,14 +153,16 @@ impl Config {
             cfg.nc_reliability_layer = Some(v.clone());
         }
         if let Some(v) = map.get("NCP:TXPower") {
-            cfg.nc_tx_power = Some(v.parse().map_err(|e| {
-                DaemonError::Config(format!("NCP:TXPower: {e}"))
-            })?);
+            cfg.nc_tx_power = Some(
+                v.parse()
+                    .map_err(|e| DaemonError::Config(format!("NCP:TXPower: {e}")))?,
+            );
         }
         if let Some(v) = map.get("NCP:CCAThreshold") {
-            cfg.nc_cca_threshold = Some(v.parse().map_err(|e| {
-                DaemonError::Config(format!("NCP:CCAThreshold: {e}"))
-            })?);
+            cfg.nc_cca_threshold = Some(
+                v.parse()
+                    .map_err(|e| DaemonError::Config(format!("NCP:CCAThreshold: {e}")))?,
+            );
         }
         if let Some(v) = map.get("IPv6:WfantundGlobalAddress") {
             cfg.ipv6_wfantund_global_address = Some(v.clone());
@@ -179,9 +180,9 @@ impl Config {
 
 /// Split a line into (key, value), stripping quotes and handling escapes.
 fn split_key_value(line: &str) -> Result<(String, String), String> {
-    let (key, rest) = line.split_once(char::is_whitespace).ok_or_else(|| {
-        format!("missing value after key in {line:?}")
-    })?;
+    let (key, rest) = line
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| format!("missing value after key in {line:?}"))?;
 
     let value = unquote(rest.trim())?;
 
