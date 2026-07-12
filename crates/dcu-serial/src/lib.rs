@@ -1,18 +1,21 @@
-//! `dcu-serial` — async serial/UART/Unix/PTY transport for the DCU daemon.
+//! `dcu-serial` — async serial/UART/Unix/TCP/PTY transport for the DCU daemon.
 //!
 //! Provides a [`Transport`] trait and HDLC framing via [`FramedTransport`]
-//! wrapping the `spinel::hdlc` codec. Three concrete transports are
-//! available:
+//! wrapping the `spinel::hdlc` codec. Concrete transports:
 //!
 //! * [`UartTransport`] — serial port via `tokio-serial`.
+//! * [`TcpTransport`] — TCP socket via `tokio::net::TcpStream`.
 //! * [`UnixSocketTransport`] — Unix domain socket via `tokio::net::UnixStream`.
 //! * [`PtyTransport`] — PTY (for mock NCP testing, see phase 4A).
 
+pub mod dispatch;
 pub mod error;
 pub mod framing;
 #[cfg(feature = "mock-pty")]
 pub mod pty;
 pub mod socket;
+pub mod system;
+pub mod tcp;
 pub mod transport;
 pub mod uart;
 
@@ -21,6 +24,7 @@ pub use framing::FramedTransport;
 #[cfg(feature = "mock-pty")]
 pub use pty::{PtyPair, PtyTransport};
 pub use socket::UnixSocketTransport;
+pub use tcp::TcpTransport;
 pub use transport::Transport;
 pub use uart::{SerialConfig, UartTransport};
 

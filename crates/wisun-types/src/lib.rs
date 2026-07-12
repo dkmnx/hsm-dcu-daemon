@@ -11,6 +11,7 @@ mod error;
 mod ncp_state;
 mod network_config;
 mod property_key;
+pub mod secure_random;
 
 /// Spinel protocol command IDs.
 pub mod command;

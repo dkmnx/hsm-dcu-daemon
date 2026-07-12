@@ -105,6 +105,26 @@ pub const PROP_DATASET_SECURITY_POLICY: u32 = 0x151F;
 pub const PROP_DATASET_RAW_TLVS: u32 = 0x1520;
 pub const PROP_DATASET_DEST_ADDRESS: u32 = 0x1527;
 
+// THREAD MLR/BBR properties (SPINEL_PROP_THREAD_EXT__BEGIN + 52..=53)
+pub const PROP_THREAD_MLR_REQUEST: u32 = 0x1534;
+pub const PROP_THREAD_MLR_RESPONSE: u32 = 0x1535;
+
+// THREAD BBR properties
+pub const PROP_THREAD_BBR_STATE: u32 = 0x1538;
+pub const PROP_THREAD_BBR_REGISTRATION_JITTER: u32 = 0x1539;
+pub const PROP_THREAD_BBR_MLR_TIMEOUT: u32 = 0x153A;
+
+// MESHCOP commissioner properties (SPINEL_PROP_MESHCOP_EXT__BEGIN)
+pub const PROP_MESHCOP_COMMISSIONER_ANNOUNCE_BEGIN: u32 = 0x1900;
+pub const PROP_MESHCOP_COMMISSIONER_ENERGY_SCAN: u32 = 0x1901;
+pub const PROP_MESHCOP_COMMISSIONER_PAN_ID_QUERY: u32 = 0x1902;
+pub const PROP_MESHCOP_COMMISSIONER_GENERATE_PSKC: u32 = 0x1907;
+
+// THREAD route/service properties
+pub const PROP_THREAD_ON_MESH_NETS: u32 = 0x1510;
+pub const PROP_THREAD_OFF_MESH_ROUTES: u32 = 0x1511;
+pub const PROP_THREAD_SERVICE: u32 = 0x1513;
+
 // MESHCOP properties (SPINEL_PROP_MESHCOP__BEGIN = 0x80)
 pub const PROP_MESHCOP_JOINER_COMMISSIONING: u32 = 0x81;
 pub const PROP_MESHCOP_JOINER_DISCERNER: u32 = 0x86;
@@ -134,6 +154,11 @@ pub const STATUS_JOIN__END: i32 = 112;
 /// Used as the default status when a LAST_STATUS response payload itself
 /// fails to decode — mirrors the C `SPINEL_STATUS_PARSE_ERROR` fallback.
 pub const SPINEL_STATUS_PARSE_ERROR: u32 = 9;
+
+/// Command is not recognized.
+pub const STATUS_INVALID_COMMAND: u32 = 5;
+/// Property is not recognized.
+pub const STATUS_PROP_NOT_FOUND: u32 = 13;
 
 // NCP capability bits (used by task capability guards)
 pub const CAP_MCU_POWER_STATE: u32 = 13;

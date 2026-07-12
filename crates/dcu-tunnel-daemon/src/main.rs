@@ -10,9 +10,9 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use dcu_dbus::{DaemonState, DbusServer};
 use dcu_tunnel_daemon::NcpInstance;
 use dcu_tunnel_daemon::config::Config;
-use dcu_dbus::{DaemonState, DbusServer};
 
 #[derive(Parser)]
 #[command(name = "dcud", about = "HSM DCU Wi-SUN FAN Border Router")]

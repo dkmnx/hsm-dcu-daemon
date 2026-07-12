@@ -279,9 +279,7 @@ impl OperationalDataset {
     pub fn to_string_list(&self) -> Vec<String> {
         DATASET_PROPERTY_KEYS
             .iter()
-            .filter_map(|key| {
-                self.field_to_string(key).map(|v| format!("{key} = {v}"))
-            })
+            .filter_map(|key| self.field_to_string(key).map(|v| format!("{key} = {v}")))
             .collect()
     }
 
@@ -309,7 +307,9 @@ impl OperationalDataset {
                 .master_key
                 .as_ref()
                 .map(|v| format!("[{}]", hex::encode(v))),
-            wisun_types::PROP_DATASET_NETWORK_NAME => self.network_name.as_ref().map(|v| format!("\"{v}\"")),
+            wisun_types::PROP_DATASET_NETWORK_NAME => {
+                self.network_name.as_ref().map(|v| format!("\"{v}\""))
+            }
             wisun_types::PROP_DATASET_EXTENDED_PAN_ID => self
                 .extended_pan_id
                 .as_ref()
@@ -418,8 +418,17 @@ mod tests {
     #[test]
     fn dataset_property_keys_match_wpan_properties() {
         let ds = sample();
-        assert!(ds.property_string(wisun_types::PROP_DATASET_PAN_ID).is_some());
-        assert!(ds.property_string(wisun_types::PROP_DATASET_CHANNEL).is_some());
-        assert!(ds.property_string(wisun_types::PROP_DATASET_MASTER_KEY).is_some());
+        assert!(
+            ds.property_string(wisun_types::PROP_DATASET_PAN_ID)
+                .is_some()
+        );
+        assert!(
+            ds.property_string(wisun_types::PROP_DATASET_CHANNEL)
+                .is_some()
+        );
+        assert!(
+            ds.property_string(wisun_types::PROP_DATASET_MASTER_KEY)
+                .is_some()
+        );
     }
 }

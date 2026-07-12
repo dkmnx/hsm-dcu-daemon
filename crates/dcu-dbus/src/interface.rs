@@ -58,17 +58,31 @@ impl WpanInterface {
     }
 
     /// PropInsert: insert into a list property.
-    ///
-    /// List properties are not yet modeled; reserved for future use.
     #[zbus(name = "PropInsert")]
-    async fn prop_insert(&self, _key: &str, _value: OwnedValue) -> Result<i32, DbusError> {
-        Err(DbusError::NotImplemented("PropInsert".into()))
+    async fn prop_insert(&self, key: &str, value: OwnedValue) -> Result<i32, DbusError> {
+        let value: Variant = value.into();
+        self.command_tx
+            .send(Command::PropInsert {
+                name: key.to_string(),
+                value,
+            })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
     }
 
     /// PropRemove: remove from a list property.
     #[zbus(name = "PropRemove")]
-    async fn prop_remove(&self, _key: &str, _value: OwnedValue) -> Result<i32, DbusError> {
-        Err(DbusError::NotImplemented("PropRemove".into()))
+    async fn prop_remove(&self, key: &str, value: OwnedValue) -> Result<i32, DbusError> {
+        let value: Variant = value.into();
+        self.command_tx
+            .send(Command::PropRemove {
+                name: key.to_string(),
+                value,
+            })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
     }
 
     /// Status: return all properties as a string-keyed dict.
@@ -306,6 +320,18 @@ impl WpanInterface {
         let params = to_variant_map(params);
         self.command_tx
             .send(Command::GeneratePSKc { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Manufacturing passthrough command (v1 interface).
+    #[zbus(name = "Mfg")]
+    async fn mfg(&self, command: &str) -> Result<i32, DbusError> {
+        self.command_tx
+            .send(Command::Mfg {
+                command: command.to_string(),
+            })
             .await
             .map_err(|e| DbusError::Transport(e.to_string()))?;
         Ok(0)

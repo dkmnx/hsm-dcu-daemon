@@ -114,7 +114,14 @@ pub fn get_property_locked(name: &str, state: &DaemonState) -> Result<Variant, D
                 .dataset
                 .iter()
                 .filter(|(k, _)| k.starts_with("Thread:PendingDataset:"))
-                .map(|(k, v)| (k.strip_prefix("Thread:PendingDataset:").unwrap_or(k).to_string(), v.clone()))
+                .map(|(k, v)| {
+                    (
+                        k.strip_prefix("Thread:PendingDataset:")
+                            .unwrap_or(k)
+                            .to_string(),
+                        v.clone(),
+                    )
+                })
                 .collect();
             Value::from(serde_json::to_string(&pending).unwrap_or_else(|_| "{}".into()))
         }

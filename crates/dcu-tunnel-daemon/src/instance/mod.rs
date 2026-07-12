@@ -12,6 +12,7 @@ use crate::DaemonError;
 use crate::config::Config;
 
 pub mod base;
+pub(crate) mod property_handlers;
 pub use base::NcpInstanceBase;
 
 /// The public daemon instance, wrapping the base state machine.

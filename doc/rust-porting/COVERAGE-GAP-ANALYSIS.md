@@ -21,7 +21,7 @@ each phase doc. Unmentioned compiled sources were inspected for real usage.
 | Target   | CLI surface replaceable today? | Functional daemon replaceable today? | Verdict                                                                                                                                                                                     |
 | -------- | ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | wfanctl  | **Yes** (9 commands, parity)   | n/a                                  | Phase 2B correctly scopes the real `commandList[]`. Operators lose nothing the C CLI could do.                                                                                              |
-| wfantund | n/a                            | **Partial — 2 partial gaps remain**  | The operational-dataset layer (P0-a) is now **implemented** (phase-3C doc + `dataset.rs`/`vendor_ext.rs`). Remaining: P0-b transports (`system:`/TCP) and P1 mfg/secure-RNG/packet-matcher. |
+| wfantund | n/a                            | **Complete — all P0/P1 gaps resolved** | The operational-dataset layer (P0-a) is **implemented** (phase-3C). Transport dispatch (P0-b) is **implemented** (dcu-serial: TCP, system/forkpty, dispatcher). Mfg D-Bus method, secure RNG, IPv6PacketMatcher all **implemented**. Property handler registration and DaemonState sync **implemented**. |
 
 The 10 phase docs are thorough on what they cover (the README dependency
 map, wire-format details, and test plans are accurate). The gaps below are

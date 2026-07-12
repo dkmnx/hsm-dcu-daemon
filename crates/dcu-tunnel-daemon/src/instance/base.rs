@@ -251,7 +251,14 @@ pub struct NcpInstanceBase {
     /// current without the D-Bus layer depending on `dcu-tunnel-daemon` internals.
     shared_state: Arc<RwLock<dcu_dbus::DaemonState>>,
 
+    /// Windowed backoff manager for unexpected NCP resets.
+    /// Wired into the reset handler when unexpected-reset detection is added.
     #[allow(dead_code)]
+    backoff: crate::tasks::backoff::BackoffManager,
+
+    /// Notified when `driver_state` changes (used by `wait_for_driver_ready`).
+    driver_state_changed: Arc<Notify>,
+
     config: Config,
 }
 
@@ -282,6 +289,8 @@ impl NcpInstanceBase {
             active_dataset: Arc::new(RwLock::new(crate::dataset::OperationalDataset::default())),
             pending_dataset: Arc::new(RwLock::new(crate::dataset::OperationalDataset::default())),
             shared_state,
+            backoff: crate::tasks::backoff::BackoffManager::new(),
+            driver_state_changed: Arc::new(Notify::new()),
             config,
         })
     }
@@ -379,6 +388,76 @@ impl NcpInstanceBase {
             }
         }
         self.set_ncp_state(NcpState::Offline).await;
+        self.set_driver_state(DriverState::NormalOperation).await;
+
+        // Populate DaemonState from NCP by querying essential properties.
+        // This must happen before firmware check so the real NCP version is available.
+        let init_props = [
+            "NCP:Version",
+            "NCP:ProtocolVersion",
+            "NCP:InterfaceType",
+            "NCP:HardwareAddress",
+            "NCP:Channel",
+            "NCP:Frequency",
+            "NCP:CCAThreshold",
+            "NCP:TXPower",
+            "Network:Name",
+            "Network:PANID",
+            "Network:NodeType",
+        ];
+        // Populate DaemonState from NCP by querying essential properties.
+        // Bounded by a single aggregate timeout to avoid blocking startup
+        // for 5s × num_props on a slow NCP.
+        let init_timeout = std::time::Duration::from_secs(10);
+        let init_futs: Vec<_> = init_props
+            .iter()
+            .map(|p| self.query_and_update_daemon_state(p))
+            .collect();
+        match tokio::time::timeout(init_timeout, futures::future::join_all(init_futs)).await {
+            Ok(results) => {
+                for (name, result) in init_props.iter().zip(results) {
+                    if let Err(e) = result {
+                        tracing::debug!("Init query {name} failed: {e}");
+                    }
+                }
+            }
+            Err(_) => {
+                tracing::warn!("Init property queries timed out after {init_timeout:?}");
+            }
+        }
+
+        // Firmware check: if auto-update is enabled and a check command is
+        // configured, verify NCP firmware version and upgrade if needed.
+        if self.config.daemon_auto_firmware_update {
+            if let (Some(check), Some(upgrade)) = (
+                &self.config.firmware_check_command,
+                &self.config.firmware_upgrade_command,
+            ) {
+                let ncp_version = self.shared_state.read().await.ncp_version.clone();
+                if ncp_version.is_empty() {
+                    tracing::warn!("Skipping firmware check: NCP version not available");
+                } else {
+                    match crate::firmware_upgrade::is_firmware_upgrade_required(check, &ncp_version)
+                        .await
+                    {
+                        Ok(true) => {
+                            tracing::info!("Firmware upgrade required, starting...");
+                            if let Err(e) = crate::firmware_upgrade::upgrade_firmware(upgrade).await
+                            {
+                                tracing::error!("Firmware upgrade failed: {e}");
+                                self.set_ncp_state(NcpState::Fault).await;
+                            }
+                        }
+                        Ok(false) => {
+                            tracing::info!("Firmware is up to date");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Firmware check failed: {e}");
+                        }
+                    }
+                }
+            }
+        }
 
         loop {
             tokio::select! {
@@ -509,6 +588,32 @@ impl NcpInstanceBase {
         .await
     }
 
+    /// Send a `PROP_VALUE_INSERT` frame for `prop` (list append).
+    pub async fn send_prop_insert(
+        &self,
+        prop: u32,
+        payload: Vec<u8>,
+    ) -> Result<SpinelFrame, DaemonError> {
+        self.send_command(
+            spinel::command::CMD_PROP_VALUE_INSERT,
+            spinel::property::prop_value_set(prop, payload).payload,
+        )
+        .await
+    }
+
+    /// Send a `PROP_VALUE_REMOVE` frame for `prop` (list remove).
+    pub async fn send_prop_remove(
+        &self,
+        prop: u32,
+        payload: Vec<u8>,
+    ) -> Result<SpinelFrame, DaemonError> {
+        self.send_command(
+            spinel::command::CMD_PROP_VALUE_REMOVE,
+            spinel::property::prop_value_set(prop, payload).payload,
+        )
+        .await
+    }
+
     /// Send a `PROP_VALUE_GET` frame for `prop` and await the response.
     pub async fn send_prop_get(&self, prop: u32) -> Result<SpinelFrame, DaemonError> {
         self.send_command(
@@ -518,25 +623,235 @@ impl NcpInstanceBase {
         .await
     }
 
+    /// Query a property by D-Bus name, returning the raw Spinel response payload.
+    ///
+    /// Looks up the handler map to find the Spinel prop ID, then sends a GET.
+    /// Returns the response frame (caller parses the value bytes).
+    pub async fn query_property_by_name(&self, name: &str) -> Result<SpinelFrame, DaemonError> {
+        let handler = crate::instance::property_handlers::lookup(name)
+            .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;
+        self.send_prop_get(handler.prop_id).await
+    }
+
+    /// Set a property on the NCP by D-Bus name.
+    ///
+    /// Serializes the Variant value to Spinel wire format and sends a SET.
+    pub async fn set_property_by_name(
+        &self,
+        name: &str,
+        value: dcu_dbus::types::Variant,
+    ) -> Result<(), DaemonError> {
+        use zbus::zvariant::Value;
+
+        let handler = crate::instance::property_handlers::lookup(name)
+            .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;
+
+        if handler.access == crate::instance::property_handlers::PropAccess::ReadOnly {
+            return Err(DaemonError::Ncp(format!("property {name} is read-only")));
+        }
+
+        let wire_bytes = match &value {
+            Value::Str(s) => s.as_bytes().to_vec(),
+            Value::U8(n) => vec![*n],
+            Value::U16(n) => n.to_le_bytes().to_vec(),
+            Value::U32(n) => n.to_le_bytes().to_vec(),
+            Value::I16(n) => (*n).to_le_bytes().to_vec(),
+            Value::I32(n) => (*n).to_le_bytes().to_vec(),
+            Value::Bool(b) => vec![u8::from(*b)],
+            other => {
+                return Err(DaemonError::Ncp(format!(
+                    "unsupported value type for {name}: {other:?}"
+                )));
+            }
+        };
+
+        self.send_prop_set(handler.prop_id, wire_bytes).await?;
+        Ok(())
+    }
+
+    /// Parse a Spinel GET response payload into a Variant.
+    ///
+    /// The response payload contains: packed_property_id + value_bytes.
+    /// Skips the property ID and decodes the value based on the expected
+    /// wire type for the given D-Bus property name.
+    pub fn parse_prop_response(
+        name: &str,
+        payload: &[u8],
+    ) -> Result<dcu_dbus::types::Variant, DaemonError> {
+        use spinel::pack::PackReader;
+        use zbus::zvariant::Value;
+
+        let mut r = PackReader::new(payload);
+        let _prop_id = r
+            .read_uint_packed()
+            .map_err(|e| DaemonError::Ncp(format!("failed to parse property ID: {e}")))?;
+
+        let v: Value<'static> = match name {
+            "NCP:Version" | "NCP:ProtocolVersion" | "NCP:InterfaceType" | "Network:Name" => {
+                let s = r
+                    .read_utf8()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse string: {e}")))?;
+                Value::from(s)
+            }
+            "NCP:Channel" | "NCP:Region" | "NCP:ModeID" | "NCP:MCUPowerState"
+            | "Network:NodeType" | "OperatingClass" | "NumChannels" | "UCDwellInterval"
+            | "BCDwellInterval" | "UCChFunction" | "BCChFunction" | "MacFilterMode" => {
+                let b = r
+                    .read_uint8()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse u8: {e}")))?;
+                Value::from(b)
+            }
+            "NCP:CCAThreshold" | "NCP:TXPower" | "NCP:RSSI" => {
+                let b = r
+                    .read_int8()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse i8: {e}")))?;
+                Value::from(b as i16)
+            }
+            "Network:PANID" | "ChSpacing" => {
+                let b = r
+                    .read_uint16()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse u16: {e}")))?;
+                Value::from(b)
+            }
+            "NCP:Frequency"
+            | "Network:KeyIndex"
+            | "Network:PartitionId"
+            | "Network:KeySwitchGuardTime"
+            | "BCInterval" => {
+                let b = r
+                    .read_uint32()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse u32: {e}")))?;
+                Value::from(b)
+            }
+            "Interface:Up" | "Stack:Up" => {
+                let b = r
+                    .read_uint8()
+                    .map_err(|e| DaemonError::Ncp(format!("failed to parse bool: {e}")))?;
+                Value::from(b != 0)
+            }
+            "NCP:HardwareAddress"
+            | "NCP:ExtendedAddress"
+            | "Network:XPANID"
+            | "Network:Key"
+            | "Network:PSKc" => {
+                let n = r.remaining();
+                let bytes = r
+                    .read_bytes(n)
+                    .map_err(|e| DaemonError::Ncp(format!("failed to read bytes: {e}")))?;
+                let hex: String = bytes.iter().map(|b| format!("{b:02X}")).collect();
+                Value::from(hex)
+            }
+            "IPv6:MeshLocalPrefix" => {
+                let n = r.remaining();
+                let bytes = r
+                    .read_bytes(n)
+                    .map_err(|e| DaemonError::Ncp(format!("failed to read prefix: {e}")))?;
+                if bytes.len() >= 8 {
+                    let mut octets = [0u8; 16];
+                    octets[..8].copy_from_slice(&bytes[..8]);
+                    let addr = std::net::Ipv6Addr::from(octets);
+                    Value::from(format!("{addr}/64"))
+                } else {
+                    let hex: String = bytes.iter().map(|b| format!("{b:02X}")).collect();
+                    Value::from(hex)
+                }
+            }
+            _ => {
+                let n = r.remaining();
+                let bytes = r
+                    .read_bytes(n)
+                    .map_err(|e| DaemonError::Ncp(format!("failed to read bytes: {e}")))?;
+                let hex: String = bytes.iter().map(|b| format!("{b:02X}")).collect();
+                Value::from(hex)
+            }
+        };
+
+        Ok(v)
+    }
+
+    /// Query a property by D-Bus name and update DaemonState.
+    ///
+    /// Used during init to populate DaemonState from NCP values.
+    pub async fn query_and_update_daemon_state(&self, name: &str) -> Result<(), DaemonError> {
+        use std::str::FromStr;
+
+        let resp = self.query_property_by_name(name).await?;
+        let variant = Self::parse_prop_response(name, &resp.payload)?;
+
+        let mut ds = self.shared_state.write().await;
+        match name {
+            "NCP:Version" => {
+                ds.ncp_version = dcu_dbus::properties::variant_to_string(&variant);
+            }
+            "NCP:ProtocolVersion" => {
+                ds.ncp_protocol_version = dcu_dbus::properties::variant_to_string(&variant);
+            }
+            "NCP:InterfaceType" => {
+                ds.ncp_interface_type = dcu_dbus::properties::variant_to_string(&variant);
+            }
+            "NCP:HardwareAddress" => {
+                let s = dcu_dbus::properties::variant_to_string(&variant);
+                if let Ok(eui) = wisun_types::Eui64::from_str(&s) {
+                    ds.hardware_address = eui;
+                }
+            }
+            "NCP:Channel" => {
+                if let zbus::zvariant::Value::U8(ch) = variant {
+                    ds.channel = ch;
+                }
+            }
+            "NCP:Frequency" => {
+                if let zbus::zvariant::Value::U32(freq) = variant {
+                    ds.frequency = freq;
+                }
+            }
+            "NCP:CCAThreshold" => {
+                if let zbus::zvariant::Value::I16(v) = variant {
+                    ds.cca_threshold = v as i8;
+                }
+            }
+            "NCP:TXPower" => {
+                if let zbus::zvariant::Value::I16(v) = variant {
+                    ds.tx_power = v as f64;
+                }
+            }
+            "NCP:RSSI" => {
+                if let zbus::zvariant::Value::I16(v) = variant {
+                    ds.rssi = v as i32;
+                }
+            }
+            "Network:Name" => {
+                let s = dcu_dbus::properties::variant_to_string(&variant);
+                if let Ok(name) = wisun_types::NetworkName::from_str(&s) {
+                    ds.network_name = name;
+                }
+            }
+            "Network:PANID" => {
+                let s = dcu_dbus::properties::variant_to_string(&variant);
+                if let Ok(pan) = wisun_types::PanId::from_str(&s) {
+                    ds.pan_id = pan;
+                }
+            }
+            "Network:NodeType" => {
+                ds.node_type = dcu_dbus::properties::variant_to_string(&variant);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Open the serial transport and spawn the I/O task.
     pub async fn start_pumps(&mut self) -> Result<(), DaemonError> {
-        // Open the serial transport. For now: PTY if config says so,
-        // otherwise UART.
-        // TODO: parse Config:NCP:SocketPath for system:/serial:/TCP prefixes
         let config = &self.config;
         tracing::info!(
-            "Opening serial: {}@{}",
+            "Opening transport: {}@{}",
             config.nc_socket_path,
             config.nc_socket_baud
         );
-        let serial_cfg = dcu_serial::SerialConfig {
-            path: config.nc_socket_path.clone(),
-            baud_rate: config.nc_socket_baud,
-            data_bits: 8,
-            stop_bits: 1,
-            flow_control: true,
-        };
-        let transport = dcu_serial::UartTransport::open(serial_cfg)?;
+        let transport =
+            dcu_serial::dispatch::open_transport(&config.nc_socket_path, config.nc_socket_baud)
+                .await?;
+        tracing::info!("Transport opened: {}", transport.info());
         self.start_pumps_impl(transport).await
     }
 
@@ -593,7 +908,58 @@ impl NcpInstanceBase {
     }
 
     pub async fn set_ncp_state(&self, state: NcpState) {
+        let old = *self.ncp_state.read().await;
+        if old == state {
+            return;
+        }
+        tracing::info!("NCP state: {old} -> {state}");
         *self.ncp_state.write().await = state;
+
+        // DeepSleep side effect must happen before we hold the lock
+        // (it does async network I/O).
+        if state == NcpState::DeepSleep
+            && self
+                .has_capability(spinel::property::CAP_MCU_POWER_STATE)
+                .await
+        {
+            if let Err(e) = self
+                .send_prop_set(
+                    spinel::property::PROP_MCU_POWER_STATE,
+                    vec![spinel::property::MCU_POWER_STATE_LOW_POWER],
+                )
+                .await
+            {
+                tracing::warn!("Failed to set MCU power state: {e}");
+            }
+        }
+
+        // Acquire one write lock for all DaemonState updates
+        {
+            let mut ds = self.shared_state.write().await;
+            ds.ncp_state = state;
+
+            match state {
+                NcpState::Offline => {
+                    ds.is_connected = false;
+                    ds.is_commissioned = false;
+                }
+                NcpState::Associated | NcpState::Isolated => {
+                    ds.is_connected = true;
+                }
+                NcpState::Fault => {
+                    tracing::error!("NCP entered FAULT state");
+                }
+                NcpState::Uninitialized => {
+                    ds.is_connected = false;
+                    ds.is_commissioned = false;
+                    ds.network_name = wisun_types::NetworkName(String::new());
+                    ds.pan_id = wisun_types::PanId::DEFAULT;
+                    ds.xpan_id.clear();
+                    ds.network_key.clear();
+                }
+                _ => {}
+            }
+        }
         self.state_changed.notify_waiters();
     }
 
@@ -602,7 +968,9 @@ impl NcpInstanceBase {
     }
 
     pub async fn set_driver_state(&self, state: DriverState) {
+        tracing::info!("Driver state: {:?}", state);
         *self.driver_state.write().await = state;
+        self.driver_state_changed.notify_waiters();
     }
 
     pub async fn get_driver_state(&self) -> DriverState {
@@ -653,16 +1021,25 @@ impl NcpInstanceBase {
     /// Wait until the driver reaches `NormalOperation`, or time out.
     ///
     /// Replaces the C task final-wait clause
-    /// `mDriverState == NORMAL_OPERATION`. The `NORMAL_OPERATION` transition is
-    /// driven by the NCP init task (later phase); until that exists, the
-    /// instance is constructed in `Initializing` and never flips, so this
-    /// would always time out. Stubbed to succeed for now — the init task will
-    /// call `set_driver_state(NormalOperation)` and this becomes a real wait.
-    pub async fn wait_for_driver_ready(
-        &self,
-        _dur: std::time::Duration,
-    ) -> Result<(), DaemonError> {
-        Ok(())
+    /// `mDriverState == NORMAL_OPERATION`. Called after NCP init completes.
+    /// Returns `Ok(())` when ready, or `Err(DaemonError::Cancelled)` on timeout.
+    pub async fn wait_for_driver_ready(&self, dur: std::time::Duration) -> Result<(), DaemonError> {
+        let deadline = tokio::time::Instant::now() + dur;
+        loop {
+            if *self.driver_state.read().await == DriverState::NormalOperation {
+                return Ok(());
+            }
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(DaemonError::Cancelled);
+            }
+            tokio::select! {
+                _ = self.driver_state_changed.notified() => {}
+                _ = tokio::time::sleep(remaining) => {
+                    return Err(DaemonError::Cancelled);
+                }
+            }
+        }
     }
 
     /// Register the active scan collector channel. Replaces any prior collector.
@@ -680,9 +1057,15 @@ impl NcpInstanceBase {
         cmd: dcu_dbus::commands::Command,
     ) -> Result<String, DaemonError> {
         use dcu_dbus::commands::Command;
+
+        // Validate command against current NCP state before dispatching.
+        let ncp_state = self.get_ncp_state().await;
+        crate::control_interface::validate_command(&cmd, ncp_state)?;
+
         match cmd {
             Command::Reset => {
-                // C reset path: drive the NCP reset and wait for re-init.
+                // Explicit operator reset — no backoff delay or count.
+                // BackoffManager tracks unexpected/NCP-driven resets only.
                 self.set_ncp_state(NcpState::Uninitialized).await;
                 self.send_command(spinel::command::CMD_RESET, Vec::new())
                     .await?;
@@ -718,9 +1101,189 @@ impl NcpInstanceBase {
                 let data = crate::tasks::peek::peek(self, addr, count).await?;
                 Ok(format!("peek({addr:#x}, {count}): {}", hex_string(&data)))
             }
-            other => {
-                tracing::warn!("Unhandled command: {other:?}");
-                Ok("unhandled".into())
+            // --- Scan commands ---
+            Command::NetScanStart { params } => {
+                let mask = extract_channel_mask(&params)?;
+                let results = crate::tasks::scan::scan(self, &mask).await?;
+                Ok(format!("Scan complete: {} beacons", results.len()))
+            }
+            Command::DiscoverScanStart { params } => {
+                let mask = extract_channel_mask(&params)?;
+                let results = crate::tasks::scan::scan(self, &mask).await?;
+                Ok(format!("Discover scan complete: {} beacons", results.len()))
+            }
+            Command::EnergyScanStart { params } => {
+                let mask = extract_channel_mask(&params)?;
+                let results = crate::tasks::scan::scan(self, &mask).await?;
+                Ok(format!("Energy scan complete: {} beacons", results.len()))
+            }
+            Command::NetScanStop | Command::DiscoverScanStop | Command::EnergyScanStop => {
+                // Scan stop is timeout-based; the scan task will finish on its own.
+                tracing::info!("Scan stop requested (timeout-based)");
+                Ok("Scan stop acknowledged".into())
+            }
+            // --- Property operations ---
+            Command::SetProperty { name, value } => {
+                match self.set_property_by_name(&name, value).await {
+                    Ok(()) => Ok(format!("Set {name}")),
+                    Err(e) => {
+                        tracing::warn!("SetProperty {name} failed: {e}");
+                        Err(e)
+                    }
+                }
+            }
+            Command::GetProperty { name, reply } => {
+                let result = match self.query_property_by_name(&name).await {
+                    Ok(resp) => Self::parse_prop_response(&name, &resp.payload),
+                    Err(e) => Err(e),
+                };
+                let _ = reply
+                    .send(result.map_err(|e| dcu_dbus::types::DbusError::Transport(e.to_string())));
+                Ok("GetProperty dispatched".into())
+            }
+            Command::DataPoll => {
+                // Trigger a data poll by reading the poll timeout property.
+                self.send_prop_get(spinel::property::PROP_MAC_DATA_POLL_PERIOD)
+                    .await?;
+                Ok("Data poll".into())
+            }
+            // --- Passthrough commands (send Spinel SET to NCP) ---
+            Command::MlrRequest { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_set(spinel::property::PROP_THREAD_MLR_REQUEST, payload)
+                    .await?;
+                Ok("MLR request sent".into())
+            }
+            Command::BackboneRouterConfig { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_set(spinel::property::PROP_THREAD_BBR_STATE, payload)
+                    .await?;
+                Ok("BBR config sent".into())
+            }
+            Command::AnnounceBegin { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_set(
+                    spinel::property::PROP_MESHCOP_COMMISSIONER_ANNOUNCE_BEGIN,
+                    payload,
+                )
+                .await?;
+                Ok("Announce begin sent".into())
+            }
+            Command::PanIdQuery { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_set(
+                    spinel::property::PROP_MESHCOP_COMMISSIONER_PAN_ID_QUERY,
+                    payload,
+                )
+                .await?;
+                Ok("PAN ID query sent".into())
+            }
+            Command::GeneratePSKc { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_set(
+                    spinel::property::PROP_MESHCOP_COMMISSIONER_GENERATE_PSKC,
+                    payload,
+                )
+                .await?;
+                Ok("PSKc generation sent".into())
+            }
+            Command::RouteAdd { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_insert(spinel::property::PROP_THREAD_OFF_MESH_ROUTES, payload)
+                    .await?;
+                Ok("Route added".into())
+            }
+            Command::RouteRemove { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_remove(spinel::property::PROP_THREAD_OFF_MESH_ROUTES, payload)
+                    .await?;
+                Ok("Route removed".into())
+            }
+            Command::ServiceAdd { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_insert(spinel::property::PROP_THREAD_SERVICE, payload)
+                    .await?;
+                Ok("Service added".into())
+            }
+            Command::ServiceRemove { params } => {
+                let payload = serialize_params(&params);
+                self.send_prop_remove(spinel::property::PROP_THREAD_SERVICE, payload)
+                    .await?;
+                Ok("Service removed".into())
+            }
+            Command::Poke { params } => {
+                let addr = crate::tasks::params::get_u32(&params, "address")
+                    .ok_or_else(|| DaemonError::Ncp("poke requires address".into()))?;
+                let data = crate::tasks::params::get_bytes(&params, "data")
+                    .ok_or_else(|| DaemonError::Ncp("poke requires data".into()))?;
+                let mut payload = Vec::new();
+                payload.extend_from_slice(&addr.to_le_bytes());
+                payload.extend_from_slice(&(data.len() as u16).to_le_bytes());
+                payload.extend_from_slice(&data);
+                self.send_command(spinel::command::CMD_POKE, payload)
+                    .await?;
+                Ok(format!("poke({addr:#x}, {} bytes)", data.len()))
+            }
+            // --- Attach ---
+            Command::Attach => {
+                self.wait_for_state(|s| !s.is_initializing(), std::time::Duration::from_secs(5))
+                    .await?;
+                self.send_prop_set(spinel::property::PROP_NET_STACK_UP, vec![1u8])
+                    .await?;
+                Ok("Attached".into())
+            }
+            // --- ConfigGateway ---
+            Command::ConfigGateway { params } => {
+                crate::tasks::form::form(self, &params).await?;
+                Ok("Gateway configured".into())
+            }
+            // --- Manufacturing passthrough ---
+            Command::Mfg { command } => {
+                // Forward the raw command string to the NCP via a
+                // vendor-specific property (PROP_VENDOR__BEGIN range).
+                let payload = command.as_bytes().to_vec();
+                self.send_prop_set(spinel::property::PROP_VENDOR__BEGIN, payload)
+                    .await?;
+                Ok(format!("Mfg: {command}"))
+            }
+            // --- List property mutations ---
+            Command::PropInsert { name, value } => {
+                use zbus::zvariant::Value;
+                let handler = crate::instance::property_handlers::lookup(&name)
+                    .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;
+                let wire_bytes = match &value {
+                    Value::Str(s) => s.as_bytes().to_vec(),
+                    Value::U8(n) => vec![*n],
+                    Value::U16(n) => n.to_le_bytes().to_vec(),
+                    Value::U32(n) => n.to_le_bytes().to_vec(),
+                    Value::I16(n) => (*n).to_le_bytes().to_vec(),
+                    Value::Bool(b) => vec![u8::from(*b)],
+                    other => {
+                        let s = dcu_dbus::properties::variant_to_string(other);
+                        s.into_bytes()
+                    }
+                };
+                self.send_prop_insert(handler.prop_id, wire_bytes).await?;
+                Ok(format!("Inserted into {name}"))
+            }
+            Command::PropRemove { name, value } => {
+                use zbus::zvariant::Value;
+                let handler = crate::instance::property_handlers::lookup(&name)
+                    .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;
+                let wire_bytes = match &value {
+                    Value::Str(s) => s.as_bytes().to_vec(),
+                    Value::U8(n) => vec![*n],
+                    Value::U16(n) => n.to_le_bytes().to_vec(),
+                    Value::U32(n) => n.to_le_bytes().to_vec(),
+                    Value::I16(n) => (*n).to_le_bytes().to_vec(),
+                    Value::Bool(b) => vec![u8::from(*b)],
+                    other => {
+                        let s = dcu_dbus::properties::variant_to_string(other);
+                        s.into_bytes()
+                    }
+                };
+                self.send_prop_remove(handler.prop_id, wire_bytes).await?;
+                Ok(format!("Removed from {name}"))
             }
         }
     }
@@ -729,6 +1292,66 @@ impl NcpInstanceBase {
 /// Render bytes as a compact hex string.
 fn hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02X}")).collect()
+}
+
+/// Extract a `ChannelMask` from scan command params.
+///
+/// The D-Bus scan methods pass a `ChannelMask` key as a string
+/// (e.g. `"1:10,12:20"`) or as a hex uint32 bitmask.
+///
+/// NOTE: The u32 bitmask form only covers channels 0–31. For Wi-SUN
+/// channels above 31 (902–928 MHz band), use the string form.
+fn extract_channel_mask(
+    params: &std::collections::HashMap<String, dcu_dbus::types::Variant>,
+) -> Result<wisun_types::ChannelMask, DaemonError> {
+    use zbus::zvariant::Value;
+    // Try string channel mask first (e.g. "1:10,12:20")
+    if let Some(Value::Str(s)) = params.get("ChannelMask") {
+        return s
+            .parse::<wisun_types::ChannelMask>()
+            .map_err(|e| DaemonError::Ncp(format!("invalid ChannelMask: {e}")));
+    }
+    // Try uint32 bitmask (each bit = a channel)
+    if let Some(Value::U32(bitmask)) = params.get("ChannelMask") {
+        let mut mask = wisun_types::ChannelMask::empty();
+        for ch in 0..32 {
+            if bitmask & (1 << ch) != 0 {
+                mask.set_channel(ch);
+            }
+        }
+        return Ok(mask);
+    }
+    // Default: all Wi-SUN channels
+    Ok(wisun_types::ChannelMask::all())
+}
+
+/// Serialize a D-Bus params HashMap to a Spinel wire payload.
+///
+/// Encodes each key-value pair as a packed string + value, suitable
+/// for passing to `send_prop_set`. The exact wire format depends on
+/// the property; this provides a generic string-based encoding.
+fn serialize_params(
+    params: &std::collections::HashMap<String, dcu_dbus::types::Variant>,
+) -> Vec<u8> {
+    use spinel::pack::PackWriter;
+    use zbus::zvariant::Value;
+
+    let mut w = PackWriter::new();
+    for (key, value) in params {
+        w.write_utf8(key);
+        match value {
+            Value::Str(s) => w.write_utf8(s),
+            Value::U8(n) => w.write_uint8(*n),
+            Value::U16(n) => w.write_uint16(*n),
+            Value::U32(n) => w.write_uint32(*n),
+            Value::Bool(b) => w.write_bool(*b),
+            _ => {
+                let s = dcu_dbus::properties::variant_to_string(value);
+                w.write_utf8(&s);
+            }
+        }
+    }
+    w.into_bytes()
 }
 
 #[cfg(test)]

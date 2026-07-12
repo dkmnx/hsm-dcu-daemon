@@ -253,8 +253,8 @@ impl<T: dcu_serial::transport::Transport + Unpin> MockNcp<T> {
             CMD_PROP_VALUE_GET => self.handle_prop_value_get(&frame.payload).await?,
             CMD_PROP_VALUE_SET => self.handle_prop_value_set(&frame.payload).await?,
             _ => {
-                tracing::warn!("Mock NCP: unhandled command {}", frame.command_id);
-                vec![last_status_error(0)]
+                tracing::warn!("Mock NCP: unknown command {}", frame.command_id);
+                vec![last_status_error(spinel::property::STATUS_INVALID_COMMAND)]
             }
         };
         // Echo the request TID on every response frame so the daemon's
@@ -379,7 +379,15 @@ impl<T: dcu_serial::transport::Transport + Unpin> MockNcp<T> {
                     frames.push(SpinelFrame::new(CMD_PROP_VALUE_IS, w.into_bytes()));
                 }
             }
-            _ => {}
+            _ => {
+                tracing::trace!("Mock NCP: unknown property SET {}", prop_key);
+                frames.push(prop_value_is(
+                    spinel::property::PROP_LAST_STATUS,
+                    spinel::property::STATUS_PROP_NOT_FOUND
+                        .to_le_bytes()
+                        .to_vec(),
+                ));
+            }
         }
 
         Ok(frames)

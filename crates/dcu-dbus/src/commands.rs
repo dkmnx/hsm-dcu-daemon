@@ -68,6 +68,12 @@ pub enum Command {
     ServiceAdd { params: HashMap<String, Variant> },
     /// Remove a service.
     ServiceRemove { params: HashMap<String, Variant> },
+    /// Manufacturing passthrough command (v1 interface).
+    Mfg { command: String },
+    /// Insert into a list property (routes, services, prefixes).
+    PropInsert { name: String, value: Variant },
+    /// Remove from a list property.
+    PropRemove { name: String, value: Variant },
     /// Set a property on the NCP/daemon.
     SetProperty { name: String, value: Variant },
     /// Get a property. The result is delivered over the oneshot sender.

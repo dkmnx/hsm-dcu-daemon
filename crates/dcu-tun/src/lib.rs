@@ -10,6 +10,7 @@ pub mod error;
 pub mod interface;
 pub mod ioctl;
 pub mod packet;
+pub mod packet_matcher;
 
 pub use device::{TunConfig, TunDevice};
 pub use error::{Ipv6Net, TunError};

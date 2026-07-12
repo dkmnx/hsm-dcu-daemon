@@ -12,6 +12,9 @@ spinel = { path = "../spinel" }
 tokio = { workspace = true, features = ["io-util", "net", "rt", "macros"] }
 tokio-serial = "5"
 portable-pty = { version = "0.8", optional = true }
+nix = { workspace = true, features = ["fs", "process", "term", "signal"] }
+libc = "0.2"
+tracing = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

@@ -12,6 +12,7 @@ dcu-tun = { path = "../dcu-tun" }
 dcu-serial = { path = "../dcu-serial" }
 dcu-dbus = { path = "../dcu-dbus" }
 tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
 tokio-util = { version = "0.7", features = ["time"] }
 clap = { version = "4", features = ["derive"] }
 tracing = { workspace = true }

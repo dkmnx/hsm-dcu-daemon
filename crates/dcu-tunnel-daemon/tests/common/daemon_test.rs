@@ -18,13 +18,13 @@ use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use dcu_tunnel_daemon::config::Config;
-use dcu_tunnel_daemon::instance::NcpInstance;
 use dcu_dbus::DaemonState;
 use dcu_dbus::commands::Command;
 use dcu_mock::builder::MockNcpBuilder;
 use dcu_mock::failure::FailureRule;
 use dcu_mock::topology::MockTopology;
+use dcu_tunnel_daemon::config::Config;
+use dcu_tunnel_daemon::instance::NcpInstance;
 
 /// Error type for test helpers.
 #[derive(Debug)]

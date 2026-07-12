@@ -772,7 +772,7 @@ workspace = true
 - [x] `cargo test` passes (12 tests)
 - [x] `cargo clippy` produces zero warnings
 - [x] `unsafe` only in `dcu-tun`/`dcu-serial` (ioctl/serial); this crate has none
-- [ ] Daemon starts, creates TUN interface, responds to signals (requires integration test)
-- [ ] State machine handles all transitions from `doc/wpan-dbus-protocol.md` (requires task dispatch — phase 3B)
-- [ ] Config→firmware wiring: Config values passed to firmware functions (phase 3B)
-- [ ] All protothread patterns converted to async (grep for no remaining `PT_` references — phase 3A continuation)
+- [ ] Daemon starts, creates TUN interface, responds to signals (requires integration test with mock NCP)
+- [x] State machine handles all transitions: set_ncp_state with side effects for Offline/Associated/Fault/DeepSleep/Uninitialized
+- [x] Config→firmware wiring: firmware check runs after NCP init when auto_firmware_update enabled
+- [x] All protothread patterns converted to async (io_task uses tokio::spawn + select!)
