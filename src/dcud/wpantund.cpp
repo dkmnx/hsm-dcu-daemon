@@ -83,7 +83,7 @@
 
 #include "any-to.h"
 #include "sec-random.h"
-#include "../wpanctl/webserver-config.h"
+#include "../wfanctl/webserver-config.h"
 #include <boost/shared_ptr.hpp>
 using ::boost::shared_ptr;
 

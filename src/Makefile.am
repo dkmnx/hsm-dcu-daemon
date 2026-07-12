@@ -18,7 +18,7 @@
 SUBDIRS =                \
 	missing              \
 	util                 \
-	wpanctl              \
+	wfanctl              \
 	ipc-dbus             \
 	connman-plugin       \
 	@PLUGIN_SUBDIRS@     \

@@ -50,7 +50,7 @@
 #include <string>
 #include <string.h>
 #include "string-utils.h"
-#include "../src/wpanctl/webserver-config.h"
+#include "../wfanctl/webserver-config.h"
 
 #define kWPANTUND_Allowlist_RssiOverrideDisabled    127
 #define kWPANTUND_SpinelPropValueDumpLen            8

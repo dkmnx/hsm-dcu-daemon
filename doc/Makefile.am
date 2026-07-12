@@ -18,12 +18,12 @@
 
 man_MANS =                   \
 	wpantund.1               \
-	wpanctl.1                \
+	wfanctl.1                \
 	$(NULL)
 
 EXTRA_DIST =                 \
 	wpantund-oss-plan.md     \
 	wpan-dbus-protocol.md    \
 	wpantund.1               \
-	wpanctl.1                \
+	wfanctl.1                \
 	$(NULL)

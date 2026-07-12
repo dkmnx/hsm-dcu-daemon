@@ -60,7 +60,7 @@ SOURCE_VERSION=m4_esyscmd([
 
 AC_CONFIG_AUX_DIR([m4])
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_FILES(Makefile doxygen.cfg src/Makefile doc/Makefile src/connman-plugin/Makefile src/ipc-dbus/Makefile src/ipc-dbus/wpantund.conf src/wpanctl/Makefile src/wpantund/Makefile src/util/Makefile src/scripts/Makefile src/missing/Makefile src/missing/strlcat/Makefile src/missing/strlcpy/Makefile third_party/Makefile)
+AC_CONFIG_FILES(Makefile doxygen.cfg src/Makefile doc/Makefile src/connman-plugin/Makefile src/ipc-dbus/Makefile src/ipc-dbus/wpantund.conf src/wfanctl/Makefile src/wpantund/Makefile src/util/Makefile src/scripts/Makefile src/missing/Makefile src/missing/strlcat/Makefile src/missing/strlcpy/Makefile third_party/Makefile)
 
 # Set up AC_CONFIG_FILES for all of the available plugins.
 AC_CONFIG_FILES(m4_normalize(m4_foreach_w(THIS_PLUGIN,AVAILABLE_NCP_PLUGINS,[src/ncp-[]THIS_PLUGIN/Makefile ])))
@@ -369,7 +369,7 @@ echo ""
 if test "x${with_readline}" != "xyes"
 then {
 	echo "warning: libreadline was disabled or not found, interactive"
-	echo "         wpanctl command line interface will not be enabled!"
+	echo "         wfanctl command line interface will not be enabled!"
 	echo ""
 }
 fi

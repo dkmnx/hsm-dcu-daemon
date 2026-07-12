@@ -3,11 +3,11 @@
 <busconfig>
     <policy user="@WPANTUND_SERVICE_USER@">
         <allow own="org.wpantund"/>
-        <allow own="org.wpantund.wpanctl"/>
+        <allow own="org.wpantund.wfanctl"/>
 
         <!-- Deprecated -->
         <allow own="com.nestlabs.WPANTunnelDriver"/>
-        <allow own="com.nestlabs.WPANTunnelDriver.wpanctl"/>
+        <allow own="com.nestlabs.WPANTunnelDriver.wfanctl"/>
     </policy>
 
     <policy group="@WPANTUND_SERVICE_GROUP@">

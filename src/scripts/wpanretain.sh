@@ -21,7 +21,7 @@ display_usage ()
 {
 	echo "Thread Network Retain - Save/Recall thread network info"
 	echo ""
-	echo "Usage: $(basename $0) [primary-net-info-file] [secondary-net-info-file] [wpanctl path] [command]"
+	echo "Usage: $(basename $0) [primary-net-info-file] [secondary-net-info-file] [wfanctl path] [command]"
 	echo ""
 	echo "    Command:"
 	echo "        'S' or 'save'   : Save current network info."
@@ -29,7 +29,7 @@ display_usage ()
 	echo "        'E' or 'erase'  : Erase previously saved network info."
 	echo ""
 	echo "     [primary-net-info-file] and [secondary-net-info-file] give full path to files to store network info."
-	echo "     [wpanctl path] gives the full path to 'wpanctl'."
+	echo "     [wfanctl path] gives the full path to 'wfanctl'."
 	echo ""
 }
 
@@ -42,7 +42,7 @@ fi
 
 primary_file_name="$1"
 secondary_file_name="$2"
-wpanctl_command="$3"
+wfanctl_command="$3"
 retain_command=$4
 
 # List of all wpantund properties saved
@@ -82,37 +82,37 @@ new_type=
 new_keyindex=
 new_routerid=
 
-# Populate the new network info variables by reading the values from wpanctl
+# Populate the new network info variables by reading the values from wfanctl
 get_new_network_info_from_wpantund ()
 {
-	val=$($wpanctl_command get -v $WPANTUND_PROP_NAME)
+	val=$($wfanctl_command get -v $WPANTUND_PROP_NAME)
 	val=${val#\"}
 	new_name=${val%\"}
 
-	val=$($wpanctl_command get $WPANTUND_PROP_KEY)
+	val=$($wfanctl_command get $WPANTUND_PROP_KEY)
 	val=${val#*\[}
 	new_key=${val%\]*}
 
-	val=$($wpanctl_command get $WPANTUND_PROP_PANID)
+	val=$($wfanctl_command get $WPANTUND_PROP_PANID)
 	new_panid=$(echo "$val" | sed -e 's/.*=[[:space:]]*//')
 
-	val=$($wpanctl_command get $WPANTUND_PROP_XPANID)
+	val=$($wfanctl_command get $WPANTUND_PROP_XPANID)
 	new_xpanid=$(echo "$val" | sed -e 's/.*=[[:space:]]*0x//')
 
-	val=$($wpanctl_command get $WPANTUND_PROP_CHANNEL)
+	val=$($wfanctl_command get $WPANTUND_PROP_CHANNEL)
 	new_channel=$(echo "$val" | sed -e 's/.*=[[:space:]]*//')
 
-	val=$($wpanctl_command get $WPANTUND_PROP_MACADDR)
+	val=$($wfanctl_command get $WPANTUND_PROP_MACADDR)
 	val=${val#*\[}
 	new_macaddr=${val%\]*}
 
-	val=$($wpanctl_command get $WPANTUND_PROP_NODE_TYPE)
+	val=$($wfanctl_command get $WPANTUND_PROP_NODE_TYPE)
 	new_type=$(echo "$val" | sed -e 's/.*=[[:space:]]*//')
 
-	val=$($wpanctl_command get $WPANTUND_PROP_KEY_INDEX)
+	val=$($wfanctl_command get $WPANTUND_PROP_KEY_INDEX)
 	new_keyindex=$(echo "$val" | sed -e 's/.*=[[:space:]]*//')
 
-	val=$($wpanctl_command get -v $WPANTUND_PROP_ROUTER_ID)
+	val=$($wfanctl_command get -v $WPANTUND_PROP_ROUTER_ID)
 	new_routerid=$(printf "%d" $val)
 }
 
@@ -126,22 +126,22 @@ restore_network_info_on_wpantund ()
 	then
 		router_id=0
 	fi
-	$wpanctl_command set $WPANTUND_PROP_PREFERRED_ROUTER_ID $router_id
+	$wfanctl_command set $WPANTUND_PROP_PREFERRED_ROUTER_ID $router_id
 
-	$wpanctl_command set $WPANTUND_PROP_MACADDR $cur_macaddr
-	$wpanctl_command set $WPANTUND_PROP_NAME $cur_name
-	$wpanctl_command set $WPANTUND_PROP_KEY -d $cur_key
-	$wpanctl_command set $WPANTUND_PROP_PANID $cur_panid
-	$wpanctl_command set $WPANTUND_PROP_XPANID -d $cur_xpanid
-	$wpanctl_command set $WPANTUND_PROP_CHANNEL $cur_channel
-	$wpanctl_command set $WPANTUND_PROP_KEY_INDEX $cur_keyindex
+	$wfanctl_command set $WPANTUND_PROP_MACADDR $cur_macaddr
+	$wfanctl_command set $WPANTUND_PROP_NAME $cur_name
+	$wfanctl_command set $WPANTUND_PROP_KEY -d $cur_key
+	$wfanctl_command set $WPANTUND_PROP_PANID $cur_panid
+	$wfanctl_command set $WPANTUND_PROP_XPANID -d $cur_xpanid
+	$wfanctl_command set $WPANTUND_PROP_CHANNEL $cur_channel
+	$wfanctl_command set $WPANTUND_PROP_KEY_INDEX $cur_keyindex
 
-	$wpanctl_command attach
+	$wfanctl_command attach
 }
 
 is_ncp_commissioned ()
 {
-	val=$($wpanctl_command get -v $WPANTUND_PROP_IS_COMMISSIONED)
+	val=$($wfanctl_command get -v $WPANTUND_PROP_IS_COMMISSIONED)
 
 	if [ "$val" != "true" ]; then
 		return 1
@@ -152,7 +152,7 @@ is_ncp_commissioned ()
 
 is_auto_resume_enabled ()
 {
-	val=$($wpanctl_command get -v $WPANTUND_PROP_AUTO_RESUME)
+	val=$($wfanctl_command get -v $WPANTUND_PROP_AUTO_RESUME)
 
 	if [ "$val" != "true" ]; then
 		return 1
@@ -370,7 +370,7 @@ recall_network_info ()
 			return
 		else
 			echo "NCP is commissioned but AutoResume is not enabled. Skipping recall. Resuming instead."
-			$wpanctl_command resume
+			$wfanctl_command resume
 			return
 		fi
 	fi
