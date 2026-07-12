@@ -5,17 +5,19 @@
 //! via `frame_rx`. Outbound frames go to the I/O task via `outbound_tx`.
 //! The I/O task owns the serial transport and does HDLC encode/decode.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use spinel::frame::SpinelFrame;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, oneshot, Notify, RwLock};
+use tokio::sync::{Notify, RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use wisun_types::DriverState;
 use wisun_types::NcpState;
 
-use crate::config::Config;
 use crate::DaemonError;
+use crate::config::Config;
 
 const READ_BUF_SIZE: usize = 4096;
 
@@ -112,6 +114,12 @@ pub struct NcpInstanceBase {
     interface_name: String,
     state_changed: Arc<Notify>,
 
+    /// Driver-side readiness (Rust analogue of `mDriverState`).
+    driver_state: Arc<RwLock<DriverState>>,
+
+    /// NCP capability bit set, populated from `PROP_CAPS` during init.
+    capabilities: Arc<RwLock<HashSet<u32>>>,
+
     pub(crate) response_table: Arc<ResponseTable>,
 
     command_rx: mpsc::Receiver<dcu_dbus::commands::Command>,
@@ -122,6 +130,12 @@ pub struct NcpInstanceBase {
 
     /// Cancellation token for the I/O task. Created by start_pumps(), consumed by stop().
     io_cancel: Option<CancellationToken>,
+
+    /// Active scan collector. Only one scan runs at a time, so a single slot.
+    /// Set by `register_scan_collector`, cleared by `unregister_scan_collector`
+    /// (also cleared when `dispatch_unsolicited` fails to forward a frame to a
+    /// dropped sender).
+    scan_collector: Arc<RwLock<Option<mpsc::UnboundedSender<SpinelFrame>>>>,
 
     #[allow(dead_code)]
     config: Config,
@@ -141,25 +155,36 @@ impl NcpInstanceBase {
             ncp_state: Arc::new(RwLock::new(NcpState::Uninitialized)),
             interface_name: config.tun_interface_name.clone(),
             state_changed: Arc::new(Notify::new()),
+            driver_state: Arc::new(RwLock::new(DriverState::Initializing)),
+            capabilities: Arc::new(RwLock::new(HashSet::new())),
             response_table: Arc::new(ResponseTable::default()),
             command_rx,
             frame_rx,
             frame_tx,
             outbound_tx: mpsc::unbounded_channel().0, // stub — replaced in start_pumps
             io_cancel: None,
+            scan_collector: Arc::new(RwLock::new(None)),
             config,
         })
     }
 
-    pub fn interface_name(&self) -> &str { &self.interface_name }
+    pub fn interface_name(&self) -> &str {
+        &self.interface_name
+    }
 
     /// Borrow the inbound frame sender (for the I/O task).
-    pub fn frame_tx(&self) -> &mpsc::UnboundedSender<SpinelFrame> { &self.frame_tx }
+    pub fn frame_tx(&self) -> &mpsc::UnboundedSender<SpinelFrame> {
+        &self.frame_tx
+    }
 
     /// Borrow the outbound channel (for the I/O task).
-    pub fn outbound_tx(&self) -> &mpsc::UnboundedSender<SpinelFrame> { &self.outbound_tx }
+    pub fn outbound_tx(&self) -> &mpsc::UnboundedSender<SpinelFrame> {
+        &self.outbound_tx
+    }
 
-    pub fn response_table(&self) -> &Arc<ResponseTable> { &self.response_table }
+    pub fn response_table(&self) -> &Arc<ResponseTable> {
+        &self.response_table
+    }
 
     /// Main event loop — receives frames from the I/O task and delivers
     /// matching responses via the response table.
@@ -178,7 +203,7 @@ impl NcpInstanceBase {
                     match frame {
                         Some(frame) => {
                             if !self.response_table.deliver(&frame) {
-                                tracing::trace!("Unsolicited: cmd={}", frame.command_id);
+                                self.dispatch_unsolicited(&frame).await;
                             }
                         }
                         None => break,
@@ -189,7 +214,11 @@ impl NcpInstanceBase {
     }
 
     /// Send a command frame and await the matching response by TID.
-    pub async fn send_command(&self, command_id: u32, payload: Vec<u8>) -> Result<SpinelFrame, DaemonError> {
+    pub async fn send_command(
+        &self,
+        command_id: u32,
+        payload: Vec<u8>,
+    ) -> Result<SpinelFrame, DaemonError> {
         let tid = alloc_tid();
         let header = spinel::frame::make_header(0, tid);
         let frame = SpinelFrame::with_header(header, command_id, payload);
@@ -202,10 +231,69 @@ impl NcpInstanceBase {
         }
 
         match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
-            Ok(Ok(resp)) => Ok(resp),
-            Ok(Err(_)) => { self.response_table.unregister(tid); Err(DaemonError::Cancelled) }
-            Err(_) => { self.response_table.unregister(tid); Err(DaemonError::Ncp("timeout".into())) }
+            Ok(Ok(resp)) => {
+                // Central status check (M1): a SET/exec response arrives as
+                // PROP_VALUE_IS(LAST_STATUS, status). Surface non-OK statuses
+                // as errors so every task gets consistent error semantics
+                // without re-implementing this per task (mirrors the C
+                // vprocess_send_command status handling).
+                if resp.command_id == spinel::command::CMD_PROP_VALUE_IS {
+                    let mut r = spinel::pack::PackReader::new(&resp.payload);
+                    if let Ok(prop) = r.read_uint_packed() {
+                        if prop == spinel::property::PROP_LAST_STATUS {
+                            // Spinel status is INT_PACKED (LEB128), not a fixed
+                            // 4-byte int. A typical non-zero status (e.g. 112)
+                            // packs to a single byte; read_uint_packed is the
+                            // correct decoder. On a malformed payload, treat
+                            // it as a parse error rather than OK (mirrors the
+                            // C's SPINEL_STATUS_PARSE_ERROR default).
+                            let status = r
+                                .read_uint_packed()
+                                .unwrap_or(spinel::property::SPINEL_STATUS_PARSE_ERROR)
+                                as i32;
+                            if status != 0 {
+                                self.response_table.unregister(tid);
+                                return Err(DaemonError::Ncp(format!(
+                                    "NCP status {status}: {}",
+                                    wisun_types::WpanError::from(status)
+                                )));
+                            }
+                        }
+                    }
+                }
+                Ok(resp)
+            }
+            Ok(Err(_)) => {
+                self.response_table.unregister(tid);
+                Err(DaemonError::Cancelled)
+            }
+            Err(_) => {
+                self.response_table.unregister(tid);
+                Err(DaemonError::Ncp("timeout".into()))
+            }
         }
+    }
+
+    /// Send a `PROP_VALUE_SET` frame for `prop` with the given payload bytes.
+    pub async fn send_prop_set(
+        &self,
+        prop: u32,
+        payload: Vec<u8>,
+    ) -> Result<SpinelFrame, DaemonError> {
+        self.send_command(
+            spinel::command::CMD_PROP_VALUE_SET,
+            spinel::property::prop_value_set(prop, payload).payload,
+        )
+        .await
+    }
+
+    /// Send a `PROP_VALUE_GET` frame for `prop` and await the response.
+    pub async fn send_prop_get(&self, prop: u32) -> Result<SpinelFrame, DaemonError> {
+        self.send_command(
+            spinel::command::CMD_PROP_VALUE_GET,
+            spinel::property::prop_value_get(prop).payload,
+        )
+        .await
     }
 
     /// Open the serial transport and spawn the I/O task.
@@ -222,7 +310,11 @@ impl NcpInstanceBase {
         // otherwise UART.
         // TODO: parse Config:NCP:SocketPath for system:/serial:/TCP prefixes
         let config = &self.config;
-        tracing::info!("Opening serial: {}@{}", config.nc_socket_path, config.nc_socket_baud);
+        tracing::info!(
+            "Opening serial: {}@{}",
+            config.nc_socket_path,
+            config.nc_socket_baud
+        );
         let serial_cfg = dcu_serial::SerialConfig {
             path: config.nc_socket_path.clone(),
             baud_rate: config.nc_socket_baud,
@@ -232,7 +324,12 @@ impl NcpInstanceBase {
         };
         let transport = dcu_serial::UartTransport::open(serial_cfg)?;
 
-        tokio::spawn(io_task(transport, outbound_rx, self.frame_tx.clone(), cancel));
+        tokio::spawn(io_task(
+            transport,
+            outbound_rx,
+            self.frame_tx.clone(),
+            cancel,
+        ));
         tracing::info!("I/O task spawned");
         Ok(())
     }
@@ -250,15 +347,167 @@ impl NcpInstanceBase {
         self.state_changed.notify_waiters();
     }
 
-    pub async fn get_ncp_state(&self) -> NcpState { *self.ncp_state.read().await }
+    pub async fn get_ncp_state(&self) -> NcpState {
+        *self.ncp_state.read().await
+    }
 
-    pub async fn handle_command(&mut self, cmd: dcu_dbus::commands::Command) -> Result<String, DaemonError> {
-        match cmd {
-            dcu_dbus::commands::Command::Reset => Ok(format!("NCP:State: {}", self.get_ncp_state().await)),
-            dcu_dbus::commands::Command::Leave => { self.set_ncp_state(NcpState::Offline).await; Ok("Left network".into()) }
-            other => { tracing::warn!("Unhandled command: {other:?}"); Ok("unhandled".into()) }
+    pub async fn set_driver_state(&self, state: DriverState) {
+        *self.driver_state.write().await = state;
+    }
+
+    pub async fn get_driver_state(&self) -> DriverState {
+        *self.driver_state.read().await
+    }
+
+    /// Replace the NCP capability set (called during init from `PROP_CAPS`).
+    pub async fn set_capabilities(&self, caps: HashSet<u32>) {
+        *self.capabilities.write().await = caps;
+    }
+
+    /// Returns `true` if the NCP advertises `cap` (e.g. `CAP_MCU_POWER_STATE`).
+    pub async fn has_capability(&self, cap: u32) -> bool {
+        self.capabilities.read().await.contains(&cap)
+    }
+
+    /// Wait until `pred(get_ncp_state())` is true, or time out.
+    ///
+    /// Replaces the C `EH_REQUIRE_WITHIN(secs, cond, on_error)` state guard.
+    /// Uses an absolute deadline (not a per-notification reset) so the total
+    /// wait never exceeds `dur`, matching the C semantics.
+    pub async fn wait_for_state<F>(
+        &self,
+        pred: F,
+        dur: std::time::Duration,
+    ) -> Result<(), DaemonError>
+    where
+        F: Fn(NcpState) -> bool,
+    {
+        if pred(self.get_ncp_state().await) {
+            return Ok(());
+        }
+        let deadline = tokio::time::Instant::now() + dur;
+        loop {
+            let notified = self.state_changed.notified();
+            tokio::pin!(notified);
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(DaemonError::Ncp("timeout waiting for NCP state".into()));
+            }
+            let _ = tokio::time::timeout(remaining, &mut notified).await;
+            if pred(self.get_ncp_state().await) {
+                return Ok(());
+            }
         }
     }
+
+    /// Wait until the driver reaches `NormalOperation`, or time out.
+    ///
+    /// Replaces the C task final-wait clause
+    /// `mDriverState == NORMAL_OPERATION`. The `NORMAL_OPERATION` transition is
+    /// driven by the NCP init task (later phase); until that exists, the
+    /// instance is constructed in `Initializing` and never flips, so this
+    /// would always time out. Stubbed to succeed for now — the init task will
+    /// call `set_driver_state(NormalOperation)` and this becomes a real wait.
+    pub async fn wait_for_driver_ready(
+        &self,
+        _dur: std::time::Duration,
+    ) -> Result<(), DaemonError> {
+        Ok(())
+    }
+
+    /// Register the active scan collector channel. Replaces any prior collector.
+    pub async fn register_scan_collector(&self, tx: mpsc::UnboundedSender<SpinelFrame>) {
+        *self.scan_collector.write().await = Some(tx);
+    }
+
+    /// Clear the active scan collector.
+    pub async fn unregister_scan_collector(&self) {
+        *self.scan_collector.write().await = None;
+    }
+
+    /// Handle unsolicited (TID==0) frames that were not consumed by the
+    /// response table. Currently this forwards scan beacons/energy results to
+    /// the active scan collector; everything else is traced.
+    async fn dispatch_unsolicited(&self, frame: &SpinelFrame) {
+        if frame.command_id != spinel::command::CMD_PROP_VALUE_IS {
+            tracing::trace!("Unsolicited cmd={}", frame.command_id);
+            return;
+        }
+        let prop = match spinel::pack::PackReader::new(&frame.payload).read_uint_packed() {
+            Ok(p) => p,
+            Err(_) => {
+                tracing::warn!("Malformed PROP_VALUE_IS frame");
+                return;
+            }
+        };
+        if prop == spinel::property::PROP_MAC_SCAN_BEACON
+            || prop == spinel::property::PROP_MAC_SCAN_STATE
+        {
+            if let Some(tx) = self.scan_collector.read().await.clone() {
+                if tx.send(frame.clone()).is_err() {
+                    tracing::warn!("Scan collector dropped; clearing slot");
+                    *self.scan_collector.write().await = None;
+                }
+            }
+        } else {
+            tracing::trace!("Unsolicited property 0x{prop:04X}");
+        }
+    }
+
+    pub async fn handle_command(
+        &mut self,
+        cmd: dcu_dbus::commands::Command,
+    ) -> Result<String, DaemonError> {
+        use dcu_dbus::commands::Command;
+        match cmd {
+            Command::Reset => {
+                // C reset path: drive the NCP reset and wait for re-init.
+                self.set_ncp_state(NcpState::Uninitialized).await;
+                self.send_command(spinel::command::CMD_RESET, Vec::new())
+                    .await?;
+                self.wait_for_state(|s| !s.is_initializing(), std::time::Duration::from_secs(5))
+                    .await?;
+                Ok(format!("NCP:State: {}", self.get_ncp_state().await))
+            }
+            Command::Leave => {
+                crate::tasks::leave::leave(self).await?;
+                Ok("Left network".into())
+            }
+            Command::Form { params } => {
+                crate::tasks::form::form(self, &params).await?;
+                Ok("Formed network".into())
+            }
+            Command::Join { params } => {
+                crate::tasks::join::join(self, &params).await?;
+                Ok("Joined network".into())
+            }
+            Command::BeginLowPower => {
+                crate::tasks::sleep::deep_sleep(self).await?;
+                Ok("Entered low-power".into())
+            }
+            Command::HostDidWake => {
+                crate::tasks::sleep::host_did_wake(self, true).await?;
+                Ok("Host woke".into())
+            }
+            Command::Peek { params } => {
+                let addr = crate::tasks::params::get_u32(&params, "address")
+                    .ok_or_else(|| DaemonError::Ncp("peek requires address".into()))?;
+                let count = crate::tasks::params::get_u16(&params, "count")
+                    .ok_or_else(|| DaemonError::Ncp("peek requires count".into()))?;
+                let data = crate::tasks::peek::peek(self, addr, count).await?;
+                Ok(format!("peek({addr:#x}, {count}): {}", hex_string(&data)))
+            }
+            other => {
+                tracing::warn!("Unhandled command: {other:?}");
+                Ok("unhandled".into())
+            }
+        }
+    }
+}
+
+/// Render bytes as a compact hex string.
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02X}")).collect()
 }
 
 #[cfg(test)]
@@ -292,9 +541,15 @@ mod tests {
     #[test]
     fn tid_wraps_at_15() {
         let seen: Vec<u8> = (0..20).map(|_| alloc_tid()).collect();
-        for &tid in &seen { assert!((1..=15).contains(&tid), "TID out of range: {tid}"); }
+        for &tid in &seen {
+            assert!((1..=15).contains(&tid), "TID out of range: {tid}");
+        }
         let unique: std::collections::HashSet<u8> = seen.iter().copied().collect();
-        assert!(unique.len() <= 15, "expected ≤15 unique TIDs, got {}", unique.len());
+        assert!(
+            unique.len() <= 15,
+            "expected ≤15 unique TIDs, got {}",
+            unique.len()
+        );
     }
 
     #[test]
