@@ -39,14 +39,14 @@ callbacks, `boost::any`, deep class hierarchies, hand-rolled buffers)
 map poorly to Rust conventions (ownership, `async`/`await`, typed errors,
 traits, crates, limited `unsafe`).
 
-| Preserve (external contract) | Do **not** preserve (internal form) |
-| ---------------------------- | ----------------------------------- |
-| Spinel / HDLC wire with TI NCP firmware | Protothread / `nlpt` control flow → use Tokio tasks + `select!` |
-| D-Bus well-known name, paths, method/signal **names** | Nested C++ virtual tables / IPCServer class layout |
-| Property key strings and (where clients depend) value formatting | `boost::any` / ad-hoc maps → typed state + explicit codecs |
-| `wpantund.conf` keys that production uses | 1:1 file names (`NCPInstanceBase-Addresses.cpp` need not become one giant `addresses.cpp`) |
-| Daemon lifecycle effects (pidfile, priv-drop, retain, TUN up) | `goto bail` / `require_action` macros → `Result` / `?` |
-| CLI command surface of registered `wfanctl` cmds | Unreachable dead `tool-cmd-*.c` code |
+| Preserve (external contract)                                     | Do **not** preserve (internal form)                                                        |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Spinel / HDLC wire with TI NCP firmware                          | Protothread / `nlpt` control flow → use Tokio tasks + `select!`                            |
+| D-Bus well-known name, paths, method/signal **names**            | Nested C++ virtual tables / IPCServer class layout                                         |
+| Property key strings and (where clients depend) value formatting | `boost::any` / ad-hoc maps → typed state + explicit codecs                                 |
+| `wpantund.conf` keys that production uses                        | 1:1 file names (`NCPInstanceBase-Addresses.cpp` need not become one giant `addresses.cpp`) |
+| Daemon lifecycle effects (pidfile, priv-drop, retain, TUN up)    | `goto bail` / `require_action` macros → `Result` / `?`                                     |
+| CLI command surface of registered `wfanctl` cmds                 | Unreachable dead `tool-cmd-*.c` code                                                       |
 
 **Implications for this gap analysis:**
 
@@ -74,15 +74,15 @@ Use this checklist when reviewing a gap-closing PR. A PR that scores
 “yes” on any **Do not merge** item is copying form, not preserving
 contract.
 
-| Do merge (logical port) | Do not merge (line-by-line port) |
-| ----------------------- | -------------------------------- |
-| Adds a Rust-native module whose public methods are driven by D-Bus/Spinel events, not by C++ method names | Renames C++ classes to `struct Foo` and keeps virtual-method-shaped dispatch |
-| Replaces protothreads with Tokio tasks/`select!` and typed errors | Introduces `nlpt`-style state machines or hand-rolled `goto` loops |
-| Uses `zbus` object server for D-Bus; one object per logical path | Manually reimplements libdbus message dispatch to mirror `DBusIPCAPI.cpp` |
-| Property handlers return strongly-typed Rust values, then convert at the API boundary | Carries `boost::any` / string-keyed maps deep into the daemon |
-| TUN bridge is async I/O between two independent streams | Copies `nlpt` read/write state machine verbatim |
-| Tests verify wire behavior (D-Bus signature, Spinel payload, TUN packet) | Tests only assert “same LOC as C” or compare C++ structs |
-| Deletes/ignores dead C code (unregistered CLI commands, no-op vendor stubs) | Ports unreachable `tool-cmd-*.c` files or empty `SpinelNCPVendorCustom` bodies “for completeness” |
+| Do merge (logical port)                                                                                   | Do not merge (line-by-line port)                                                                  |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Adds a Rust-native module whose public methods are driven by D-Bus/Spinel events, not by C++ method names | Renames C++ classes to `struct Foo` and keeps virtual-method-shaped dispatch                      |
+| Replaces protothreads with Tokio tasks/`select!` and typed errors                                         | Introduces `nlpt`-style state machines or hand-rolled `goto` loops                                |
+| Uses `zbus` object server for D-Bus; one object per logical path                                          | Manually reimplements libdbus message dispatch to mirror `DBusIPCAPI.cpp`                         |
+| Property handlers return strongly-typed Rust values, then convert at the API boundary                     | Carries `boost::any` / string-keyed maps deep into the daemon                                     |
+| TUN bridge is async I/O between two independent streams                                                   | Copies `nlpt` read/write state machine verbatim                                                   |
+| Tests verify wire behavior (D-Bus signature, Spinel payload, TUN packet)                                  | Tests only assert “same LOC as C” or compare C++ structs                                          |
+| Deletes/ignores dead C code (unregistered CLI commands, no-op vendor stubs)                               | Ports unreachable `tool-cmd-*.c` files or empty `SpinelNCPVendorCustom` bodies “for completeness” |
 
 **Owner sign-off required before intentionally preserving C structure:**
 if a PR’s justification is “C does it this way,” it must also explain why
@@ -91,10 +91,10 @@ meet the contract.
 
 ### How to read “parity” (external, not structural)
 
-| Tier | Meaning | Use this for |
-| ---- | ------- | ------------ |
-| **T1 — Field drop-in** | System bus + GetInterfaces + TUN/addresses + form/join/status/get/set + packaging names; clients (`dcuctl`, webapp) work | Shipping replacement |
-| **T2 — Behavioral completeness** | Every **registered** D-Bus method C exposes, Stat/Pcap/Retain, production property set on target firmware | Full client/ops compatibility with C daemon |
+| Tier                             | Meaning                                                                                                                  | Use this for                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| **T1 — Field drop-in**           | System bus + GetInterfaces + TUN/addresses + form/join/status/get/set + packaging names; clients (`dcuctl`, webapp) work | Shipping replacement                        |
+| **T2 — Behavioral completeness** | Every **registered** D-Bus method C exposes, Stat/Pcap/Retain, production property set on target firmware                | Full client/ops compatibility with C daemon |
 
 “Parity” here means **behavior and contracts**, not isomorphic source.
 P0 items are **T1 blockers**. P1 items complete **T2** (and some T1
@@ -104,11 +104,11 @@ firmware first (P1-7).
 
 ### Implementor readiness of *this document*
 
-| Ready now? | What this doc is | What it is not |
-| ---------- | ---------------- | -------------- |
-| **Yes as backlog / triage** | Verified gap list, priorities, C file pointers, acceptance milestones | — |
-| **Not alone as design tickets** | — | Per-gap wire-format specs, zbus signatures, TID state-machine detail, effort estimates, golden fixtures |
-| **Not a C→Rust file map** | C paths cite *behavior to re-implement* | A mandate to recreate C module layout |
+| Ready now?                      | What this doc is                                                      | What it is not                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Yes as backlog / triage**     | Verified gap list, priorities, C file pointers, acceptance milestones | —                                                                                                       |
+| **Not alone as design tickets** | —                                                                     | Per-gap wire-format specs, zbus signatures, TID state-machine detail, effort estimates, golden fixtures |
+| **Not a C→Rust file map**       | C paths cite *behavior to re-implement*                               | A mandate to recreate C module layout                                                                   |
 
 **Before coding each P0/P1 item**, write a short implementor note (or
 amend the matching phase-*.md) with: external contract (D-Bus/Spinel/
@@ -137,38 +137,38 @@ this doc + `DBUSIPCServer.cpp` alone.
 
 ### Secondary gaps (P1) — T2 / ops completeness
 
-| ID | Gap | C source | Notes |
-| -- | --- | -------- | ----- |
-| **P1-1** | StatCollector + `Stat:*` | `StatCollector.cpp` (~1.7k) | Large; may be optional for some deployments |
-| **P1-2** | Pcap + `PcapToFd` / `PcapTerminate` | `Pcap.cpp` + registered in `DBusIPCAPI` | Registered in C — real gap |
-| **P1-3** | Missing **registered** D-Bus methods | See §2.3 method matrix | 13 methods; **not** PermitJoin/BeginNetWake (header-only in C) |
-| **P1-4** | PID file, priv-drop, chroot | `wpantund.cpp` | Config parsed, not applied |
-| **P1-5** | Hard-reset / power GPIO paths | config keys | Parsed only |
-| **P1-6** | AutoDeepSleep / AutoAssociateAfterReset | config flags | Parsed only |
-| **P1-7** | Property surface vs production set | `wpan-properties.h` (~325 defines) vs ~40 Spinel handlers | **Inventory first**; do not blind-port all 325 |
-| **P1-8** | `NetworkTimeUpdate` signal | C connects `mOnNetworkTimeUpdate` | Missing in Rust signals |
-| **P1-9** | Binary / packaging names | Makefile vs Cargo | Symlink OK |
+| ID       | Gap                                     | C source                                                  | Notes                                                          |
+| -------- | --------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
+| **P1-1** | StatCollector + `Stat:*`                | `StatCollector.cpp` (~1.7k)                               | Large; may be optional for some deployments                    |
+| **P1-2** | Pcap + `PcapToFd` / `PcapTerminate`     | `Pcap.cpp` + registered in `DBusIPCAPI`                   | Registered in C — real gap                                     |
+| **P1-3** | Missing **registered** D-Bus methods    | See §2.3 method matrix                                    | 13 methods; **not** PermitJoin/BeginNetWake (header-only in C) |
+| **P1-4** | PID file, priv-drop, chroot             | `wpantund.cpp`                                            | Config parsed, not applied                                     |
+| **P1-5** | Hard-reset / power GPIO paths           | config keys                                               | Parsed only                                                    |
+| **P1-6** | AutoDeepSleep / AutoAssociateAfterReset | config flags                                              | Parsed only                                                    |
+| **P1-7** | Property surface vs production set      | `wpan-properties.h` (~325 defines) vs ~40 Spinel handlers | **Inventory first**; do not blind-port all 325                 |
+| **P1-8** | `NetworkTimeUpdate` signal              | C connects `mOnNetworkTimeUpdate`                         | Missing in Rust signals                                        |
+| **P1-9** | Binary / packaging names                | Makefile vs Cargo                                         | Symlink OK                                                     |
 
 ### Known intentional / already-documented deviations (not “missing code”)
 
-| Item | Reality | Implementor note |
-| ---- | ------- | ---------------- |
+| Item                  | Reality                                                                                                                 | Implementor note                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `PropGet` return type | C returns typed **variant** via callback helper; Rust returns **stringified** `String` (`interface.rs` + phase-2A note) | Clients that only print strings (dcuctl, much of webapp PropGet) OK; typed-variant clients need audit |
-| `Status` dict values | Rust `HashMap<String, String>`; C builds variant dict | Same stringification caveat |
-| Joiner task file | `tasks/joiner_commission.rs` exists | **Not** exposed as D-Bus methods yet (P1-3) |
+| `Status` dict values  | Rust `HashMap<String, String>`; C builds variant dict                                                                   | Same stringification caveat                                                                           |
+| Joiner task file      | `tasks/joiner_commission.rs` exists                                                                                     | **Not** exposed as D-Bus methods yet (P1-3)                                                           |
 
 ### Acceptable non-blockers (P2)
 
-| Item | Rationale |
-| ---- | --------- |
-| `SpinelNCPVendorCustom` | No-op stub in this build; Nest extension never filled by TI |
-| `connman-plugin/` | Explicit README non-goal |
-| Porting `ti-wisun-webapp` source | Explicit non-goal; **webapp as a client** still requires T1 D-Bus (system bus) |
-| `ncp-dummy/` runtime plugin | Rust uses compile-time crates, not `.so` plugins |
-| `spi-hdlc-adapter` | Separate OpenThread helper; reachable via `system:` transport if installed |
-| `spinel_encrypter.hpp` | Optional encryption hook; unused by default |
-| Unregistered `wfanctl` tool-cmd-\*.c files | Linked but **not** in `commandList[]` — C cannot run them either |
-| `PermitJoin`, `BeginNetWake` D-Bus cmds | Defined in `wpan-dbus.h` but **not** `INTERFACE_CALLBACK_CONNECT`’d in C — not a Rust gap |
+| Item                                       | Rationale                                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `SpinelNCPVendorCustom`                    | No-op stub in this build; Nest extension never filled by TI                               |
+| `connman-plugin/`                          | Explicit README non-goal                                                                  |
+| Porting `ti-wisun-webapp` source           | Explicit non-goal; **webapp as a client** still requires T1 D-Bus (system bus)            |
+| `ncp-dummy/` runtime plugin                | Rust uses compile-time crates, not `.so` plugins                                          |
+| `spi-hdlc-adapter`                         | Separate OpenThread helper; reachable via `system:` transport if installed                |
+| `spinel_encrypter.hpp`                     | Optional encryption hook; unused by default                                               |
+| Unregistered `wfanctl` tool-cmd-\*.c files | Linked but **not** in `commandList[]` — C cannot run them either                          |
+| `PermitJoin`, `BeginNetWake` D-Bus cmds    | Defined in `wpan-dbus.h` but **not** `INTERFACE_CALLBACK_CONNECT`’d in C — not a Rust gap |
 
 ---
 
@@ -201,30 +201,30 @@ Rust `dcuctl` implements the same set (plus REPL quit aliases `quit`/`exit`/`q`)
 
 ### 2.1 Implemented (phases 1A–4B) — verified present
 
-| Area | Rust location | Notes |
-| ---- | ------------- | ----- |
-| Types / property key constants | `crates/wisun-types` | Includes secure RNG, dataset-related keys |
-| Spinel codec + HDLC | `crates/spinel` | Fuzz target present |
-| TUN library | `crates/dcu-tun` | Device, ioctl, packet matcher — **library only** |
-| Serial / TCP / `system:` / PTY | `crates/dcu-serial` | Transport dispatch implemented |
-| D-Bus interface methods (subset) | `crates/dcu-dbus` | Form/Join/Leave/Status/Prop\*/scans/Mfg/… |
-| D-Bus signals (subset) | `crates/dcu-dbus/signals.rs` | NetScanBeacon, EnergyScanResult, PropChanged, InterfaceAdded/Removed |
-| Daemon core + Spinel I/O | `crates/dcu-tunnel-daemon` | Response table, io_task, command dispatch |
-| Spinel tasks | `tasks/*` | form, join, leave, scan, sleep, peek, topology, joiner_commission, … |
-| Operational dataset | `dataset.rs` | Codec + DaemonState mirror for `Dataset:*` |
-| Firmware upgrade helpers | `firmware_upgrade.rs` | Wired when `AutoFirmwareUpdate` is set |
-| Config parser | `config.rs` | wpantund.conf key subset |
-| Mock NCP + e2e | `dcu-mock` + integration tests | form/join/startup/timeout vs mock |
-| Runaway reset backoff | `tasks/backoff.rs` | Present |
+| Area                             | Rust location                  | Notes                                                                |
+| -------------------------------- | ------------------------------ | -------------------------------------------------------------------- |
+| Types / property key constants   | `crates/wisun-types`           | Includes secure RNG, dataset-related keys                            |
+| Spinel codec + HDLC              | `crates/spinel`                | Fuzz target present                                                  |
+| TUN library                      | `crates/dcu-tun`               | Device, ioctl, packet matcher — **library only**                     |
+| Serial / TCP / `system:` / PTY   | `crates/dcu-serial`            | Transport dispatch implemented                                       |
+| D-Bus interface methods (subset) | `crates/dcu-dbus`              | Form/Join/Leave/Status/Prop\*/scans/Mfg/…                            |
+| D-Bus signals (subset)           | `crates/dcu-dbus/signals.rs`   | NetScanBeacon, EnergyScanResult, PropChanged, InterfaceAdded/Removed |
+| Daemon core + Spinel I/O         | `crates/dcu-tunnel-daemon`     | Response table, io_task, command dispatch                            |
+| Spinel tasks                     | `tasks/*`                      | form, join, leave, scan, sleep, peek, topology, joiner_commission, … |
+| Operational dataset              | `dataset.rs`                   | Codec + DaemonState mirror for `Dataset:*`                           |
+| Firmware upgrade helpers         | `firmware_upgrade.rs`          | Wired when `AutoFirmwareUpdate` is set                               |
+| Config parser                    | `config.rs`                    | wpantund.conf key subset                                             |
+| Mock NCP + e2e                   | `dcu-mock` + integration tests | form/join/startup/timeout vs mock                                    |
+| Runaway reset backoff            | `tasks/backoff.rs`             | Present                                                              |
 
 ### 2.2 True gaps (detailed)
 
 #### P0-1 — System bus (production D-Bus)
 
-| | C | Rust today |
-| - | - | ---------- |
-| Bus | `dbus_bus_get(DBUS_BUS_SYSTEM)` | `Connection::session()` in `DbusServer::start` |
-| Clients | system bus | `dcuctl` uses system bus |
+|         | C                               | Rust today                                     |
+| ------- | ------------------------------- | ---------------------------------------------- |
+| Bus     | `dbus_bus_get(DBUS_BUS_SYSTEM)` | `Connection::session()` in `DbusServer::start` |
+| Clients | system bus                      | `dcuctl` uses system bus                       |
 
 **Parity requirement:** Production `dcutund` must claim
 `com.nestlabs.WPANTunnelDriver` on the **system** bus (session only for
@@ -271,12 +271,12 @@ registers an object** at that path and has **no `GetInterfaces` method**.
 
 **C entry points for implementors (start here):**
 
-| Direction | C hook | Spinel |
-| --------- | ------ | ------ |
-| NCP → host | `SpinelNCPInstance.cpp` ~6617+ (`SPINEL_PROP_STREAM_NET` / `_INSECURE`) → `handle_normal_ipv6_from_ncp` | `PROP_STREAM_NET` |
-| NCP raw/pcap | ~6492+ `SPINEL_PROP_STREAM_RAW` | related to P1-2 |
-| Host → NCP | NetInterface / AsyncIO TUN read → stream write | same STREAM props |
-| OS TUN | `tunnel.c`, `TunnelIPv6Interface.*`, `netif-mgmt.c` | n/a |
+| Direction    | C hook                                                                                                  | Spinel            |
+| ------------ | ------------------------------------------------------------------------------------------------------- | ----------------- |
+| NCP → host   | `SpinelNCPInstance.cpp` ~6617+ (`SPINEL_PROP_STREAM_NET` / `_INSECURE`) → `handle_normal_ipv6_from_ncp` | `PROP_STREAM_NET` |
+| NCP raw/pcap | ~6492+ `SPINEL_PROP_STREAM_RAW`                                                                         | related to P1-2   |
+| Host → NCP   | NetInterface / AsyncIO TUN read → stream write                                                          | same STREAM props |
+| OS TUN       | `tunnel.c`, `TunnelIPv6Interface.*`, `netif-mgmt.c`                                                     | n/a               |
 
 **Parity requirement:**
 
@@ -360,42 +360,52 @@ pushes frames when pcap is active.
 **Reproduce this matrix (run before claiming a method is done):**
 
 ```bash
-# C registered methods
-grep -oE 'WPANTUND_IF_CMD_[A-Za-z0-9]+' src/ipc-dbus/DBusIPCAPI.cpp | \
-  sed 's/WPANTUND_IF_CMD_//' | sort -u > /tmp/c_registered.txt
+# C registered method names (keep underscores; C uses UPPER_SNAKE_CASE,
+# e.g. WPANTUND_IF_CMD_ANNOUNCE_BEGIN → ANNOUNCE_BEGIN).
+grep -oE 'WPANTUND_IF_CMD_[A-Za-z0-9_]+' src/ipc-dbus/DBusIPCAPI.cpp | \
+  sed 's/WPANTUND_IF_CMD_//' | sort -u > /tmp/c.txt
 
-# C header defines (includes unregistered aliases)
-grep -oE 'WPANTUND_IF_CMD_[A-Za-z0-9]+' src/ipc-dbus/wpan-dbus.h | \
+# C header defines (includes unregistered aliases like PERMIT_JOIN,
+# NETWORK_WAKE_BEGIN).
+grep -oE 'WPANTUND_IF_CMD_[A-Za-z0-9_]+' src/ipc-dbus/wpan-dbus.h | \
   sed 's/WPANTUND_IF_CMD_//' | sort -u > /tmp/c_header.txt
 
-# Rust zbus methods
+# Rust zbus methods (PascalCase, e.g. AnnounceBegin).
 grep -oE '#\[zbus\(name = "[^"]+"\)\]' crates/dcu-dbus/src/interface.rs | \
-  sed -E 's/.*"([^"]+)".*/\1/' | sort -u > /tmp/rust.txt
+  sed -E 's/.*"([^"]+)".*/\1/' | sort -u > /tmp/r.txt
 
-# Missing from Rust but registered in C
-comm -23 /tmp/c_registered.txt /tmp/rust.txt
+# Missing from Rust but registered in C. C is UPPER_SNAKE_CASE and Rust is
+# PascalCase, so normalize to lower-case and strip underscores before diffing.
+# (The naive `comm -23 /tmp/c.txt /tmp/r.txt` reports every C method as
+# "missing" because the names never match — do NOT use it.)
+comm -23 <(tr 'A-Z' 'a-z' < /tmp/c.txt  | tr -d '_') \
+         <(tr 'A-Z' 'a-z' < /tmp/r.txt | tr -d '_')
 ```
 
 > The counts above were produced with these commands. Re-run them before
-> updating the matrix; do not hand-maintain the list.
+> updating the matrix; do not hand-maintain the list. Header defines **47**
+> (`/tmp/c_header.txt`), C registers **45** (excludes `PERMIT_JOIN`,
+> `NETWORK_WAKE_BEGIN`), Rust implements **33** (`/tmp/r.txt`); the
+> case/underscore-insensitive diff yields the **13** registered-in-C
+> methods still missing from Rust listed in the table below.
 
 **Registered in C, missing in Rust (13):**
 
-| Method | Notes for implementor |
-| ------ | --------------------- |
-| `PcapToFd` | Pair with P1-2; FD passing over D-Bus |
-| `PcapTerminate` | Pair with P1-2 |
-| `JoinerAttach` | See `SpinelNCPControlInterface` / joiner attach path |
-| `JoinerStart` | Wire `tasks/joiner_commission.rs` (`action=true`) |
-| `JoinerStop` | Wire same task (`action=false`) |
-| `JoinerCommissioning` | Deprecated alias in C; still registered — keep for parity |
-| `JoinerAdd` | Commissioner |
-| `JoinerRemove` | Commissioner |
-| `LinkMetricsQuery` | No Rust task yet; C in SpinelNCPInstance |
-| `LinkMetricsProbe` | No Rust task yet |
-| `LinkMetricsMgmtForward` | No Rust task yet |
-| `LinkMetricsMgmtEnhAck` | No Rust task yet |
-| `EnergyScanQuery` | Distinct from EnergyScanStart/Stop |
+| Method                   | Notes for implementor                                     |
+| ------------------------ | --------------------------------------------------------- |
+| `PcapToFd`               | Pair with P1-2; FD passing over D-Bus                     |
+| `PcapTerminate`          | Pair with P1-2                                            |
+| `JoinerAttach`           | See `SpinelNCPControlInterface` / joiner attach path      |
+| `JoinerStart`            | Wire `tasks/joiner_commission.rs` (`action=true`)         |
+| `JoinerStop`             | Wire same task (`action=false`)                           |
+| `JoinerCommissioning`    | Deprecated alias in C; still registered — keep for parity |
+| `JoinerAdd`              | Commissioner                                              |
+| `JoinerRemove`           | Commissioner                                              |
+| `LinkMetricsQuery`       | No Rust task yet; C in SpinelNCPInstance                  |
+| `LinkMetricsProbe`       | No Rust task yet                                          |
+| `LinkMetricsMgmtForward` | No Rust task yet                                          |
+| `LinkMetricsMgmtEnhAck`  | No Rust task yet                                          |
+| `EnergyScanQuery`        | Distinct from EnergyScanStart/Stop                        |
 
 **Not a gap (C also does not register):** `PermitJoin`, `BeginNetWake`.
 
@@ -412,12 +422,12 @@ ServiceAdd/Remove, GetVersion.
 
 Parsed in `config.rs` but **not applied** in `main.rs` / instance:
 
-| Config key | C behavior | Rust |
-| ---------- | ---------- | ---- |
-| `Config:Daemon:PIDFile` | write PID, unlink on exit | ignored |
-| `Config:Daemon:PrivDropToUser` | setgid/setuid after bind | ignored |
-| `Config:Daemon:Chroot` | chroot + chdir | ignored |
-| syslog / log mask | syslog | tracing only (acceptable if journald-compatible; document) |
+| Config key                     | C behavior                | Rust                                                       |
+| ------------------------------ | ------------------------- | ---------------------------------------------------------- |
+| `Config:Daemon:PIDFile`        | write PID, unlink on exit | ignored                                                    |
+| `Config:Daemon:PrivDropToUser` | setgid/setuid after bind  | ignored                                                    |
+| `Config:Daemon:Chroot`         | chroot + chdir            | ignored                                                    |
+| syslog / log mask              | syslog                    | tracing only (acceptable if journald-compatible; document) |
 
 **Parity requirement:** Apply PID file + optional priv-drop/chroot after
 privileged setup (TUN, D-Bus name, serial open) matching C order.
@@ -435,10 +445,10 @@ these flags.
 
 #### P1-7 — Property surface
 
-| | C | Rust |
-| - | - | ---- |
-| Named property defines | ~325 in `wpan-properties.h` | ~50–80 string keys in `property_key` macro + tests |
-| Spinel handler map | large switch tables in SpinelNCPInstance | ~40 entries in `property_handlers.rs` |
+|                        | C                                        | Rust                                               |
+| ---------------------- | ---------------------------------------- | -------------------------------------------------- |
+| Named property defines | ~325 in `wpan-properties.h`              | ~50–80 string keys in `property_key` macro + tests |
+| Spinel handler map     | large switch tables in SpinelNCPInstance | ~40 entries in `property_handlers.rs`              |
 
 Not every C key is active on TI Wi-SUN firmware, but **100% parity**
 means:
@@ -464,13 +474,13 @@ For drop-in packages:
 
 ## 3. Phase docs vs code (staleness)
 
-| Phase | README status | Code | Doc accuracy note |
-| ----- | ------------- | ---- | ----------------- |
-| 1A–2B | Done | Present | OK |
-| 3A | Done | Core present; addresses/netif/pcap/stat/retain still open | phase-3A still lists several “Not yet” items — correct |
-| 3B | Done | Tasks present | OK |
-| 3C | “Implemented (uncommitted)” | `dataset.rs` present | **phase-3C header still says “Not started”** — update separately |
-| 4A–4B | Done | Mock + 4 integration tests | OK; not hardware acceptance |
+| Phase | README status               | Code                                                      | Doc accuracy note                                                |
+| ----- | --------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
+| 1A–2B | Done                        | Present                                                   | OK                                                               |
+| 3A    | Done                        | Core present; addresses/netif/pcap/stat/retain still open | phase-3A still lists several “Not yet” items — correct           |
+| 3B    | Done                        | Tasks present                                             | OK                                                               |
+| 3C    | “Implemented (uncommitted)” | `dataset.rs` present                                      | **phase-3C header still says “Not started”** — update separately |
+| 4A–4B | Done                        | Mock + 4 integration tests                                | OK; not hardware acceptance                                      |
 
 This file supersedes earlier contradictory drafts that claimed “all
 P0/P1 resolved.” **They are not.**
@@ -556,60 +566,60 @@ in Rust (see **Logical port** above).
 
 ### Daemon core (`src/wfantund/`)
 
-| C source | LOC (approx) | Rust status |
-| -------- | ------------ | ----------- |
-| `wpantund.cpp` | main loop, lifecycle | Partial — main/signals exist; no pid/priv/chroot |
-| `NCPInstanceBase.cpp` | large | Partial — state machine / props subset |
-| `NCPInstanceBase-Addresses.cpp` | ~1332 | **Missing** (P0-4) |
-| `NCPInstanceBase-AsyncIO.cpp` | ~260 | Partial — Spinel I/O only; no TUN bridge |
-| `NCPInstanceBase-NetInterface.cpp` | ~477 | **Missing / unwired** (P0-3) |
-| `NCPControlInterface.cpp` | API surface | Partial via D-Bus commands |
-| `NCPInstance.cpp` | factory | `NcpInstance` wrapper |
-| `FirmwareUpgrade.cpp` | ~433 | Present + partially wired |
-| `RunawayResetBackoffManager.cpp` | small | Present (`backoff.rs`) |
-| `NetworkRetain.cpp` | ~215 | **Missing** (P0-5) |
-| `Pcap.cpp` | ~378 | **Missing** (P1-2) |
-| `StatCollector.cpp` | ~1737 | **Missing** (P1-1) |
-| `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types | `wisun-types` |
-| `NCPMfgInterface_v0/v1.h` | mfg API | v1 `Mfg` method present; v0 granular APIs not exposed |
+| C source                                            | LOC (approx)         | Rust status                                           |
+| --------------------------------------------------- | -------------------- | ----------------------------------------------------- |
+| `wpantund.cpp`                                      | main loop, lifecycle | Partial — main/signals exist; no pid/priv/chroot      |
+| `NCPInstanceBase.cpp`                               | large                | Partial — state machine / props subset                |
+| `NCPInstanceBase-Addresses.cpp`                     | ~1332                | **Missing** (P0-4)                                    |
+| `NCPInstanceBase-AsyncIO.cpp`                       | ~260                 | Partial — Spinel I/O only; no TUN bridge              |
+| `NCPInstanceBase-NetInterface.cpp`                  | ~477                 | **Missing / unwired** (P0-3)                          |
+| `NCPControlInterface.cpp`                           | API surface          | Partial via D-Bus commands                            |
+| `NCPInstance.cpp`                                   | factory              | `NcpInstance` wrapper                                 |
+| `FirmwareUpgrade.cpp`                               | ~433                 | Present + partially wired                             |
+| `RunawayResetBackoffManager.cpp`                    | small                | Present (`backoff.rs`)                                |
+| `NetworkRetain.cpp`                                 | ~215                 | **Missing** (P0-5)                                    |
+| `Pcap.cpp`                                          | ~378                 | **Missing** (P1-2)                                    |
+| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1)                                    |
+| `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types                | `wisun-types`                                         |
+| `NCPMfgInterface_v0/v1.h`                           | mfg API              | v1 `Mfg` method present; v0 granular APIs not exposed |
 
 ### Util (compiled into daemon)
 
-| C source | Rust status |
-| -------- | ----------- |
-| `socket-utils.c` | `dcu-serial` dispatch (UART/TCP/system) — **done** |
-| `tunnel.c` / `TunnelIPv6Interface.*` / `netif-mgmt.c` | `dcu-tun` library — **not wired into daemon** |
-| `IPv6PacketMatcher.*` | `dcu-tun/packet_matcher.rs` — **not on live path** |
-| `IPv6Helpers.*` | Partial via `ipnet` / helpers |
-| `config-file.c` | `config.rs` |
-| `sec-random.c` | `wisun-types/secure_random.rs` |
-| Timer / RingBuffer / nlpt / ValueMap / … | std / tokio / HashMap — no port needed |
+| C source                                              | Rust status                                        |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| `socket-utils.c`                                      | `dcu-serial` dispatch (UART/TCP/system) — **done** |
+| `tunnel.c` / `TunnelIPv6Interface.*` / `netif-mgmt.c` | `dcu-tun` library — **not wired into daemon**      |
+| `IPv6PacketMatcher.*`                                 | `dcu-tun/packet_matcher.rs` — **not on live path** |
+| `IPv6Helpers.*`                                       | Partial via `ipnet` / helpers                      |
+| `config-file.c`                                       | `config.rs`                                        |
+| `sec-random.c`                                        | `wisun-types/secure_random.rs`                     |
+| Timer / RingBuffer / nlpt / ValueMap / …              | std / tokio / HashMap — no port needed             |
 
 ### NCP Spinel plugin (`src/ncp-spinel/`)
 
-| C source | Rust status |
-| -------- | ----------- |
-| `SpinelNCPInstance*.cpp` | Partial in `instance/base.rs` |
-| `SpinelNCPTask*.cpp` | Mostly ported under `tasks/` |
-| `SpinelNCPThreadDataset.*` | `dataset.rs` — **done** |
-| `SpinelNCPVendorCustom.*` | No-op; optional stub OK (P2) |
-| `spinel-extra.*` / OpenThread `spinel.h` | `spinel` crate |
-| `spinel_encrypter.hpp` | Unused stub — P2 |
+| C source                                 | Rust status                   |
+| ---------------------------------------- | ----------------------------- |
+| `SpinelNCPInstance*.cpp`                 | Partial in `instance/base.rs` |
+| `SpinelNCPTask*.cpp`                     | Mostly ported under `tasks/`  |
+| `SpinelNCPThreadDataset.*`               | `dataset.rs` — **done**       |
+| `SpinelNCPVendorCustom.*`                | No-op; optional stub OK (P2)  |
+| `spinel-extra.*` / OpenThread `spinel.h` | `spinel` crate                |
+| `spinel_encrypter.hpp`                   | Unused stub — P2              |
 
 ### IPC D-Bus (`src/ipc-dbus/`)
 
-| C source | Rust status |
-| -------- | ----------- |
-| `DBusIPCAPI.cpp` | Partial method set (P1-3) |
+| C source            | Rust status                                        |
+| ------------------- | -------------------------------------------------- |
+| `DBusIPCAPI.cpp`    | Partial method set (P1-3)                          |
 | `DBUSIPCServer.cpp` | Partial — missing base `GetInterfaces`, system bus |
-| `wpan-dbus.h` | Constants mirrored incompletely |
-| `DBUSHelpers.cpp` | `properties::variant_to_string` subset |
+| `wpan-dbus.h`       | Constants mirrored incompletely                    |
+| `DBUSHelpers.cpp`   | `properties::variant_to_string` subset             |
 
 ### CLI (`src/wfanctl/`)
 
-| Area | Status |
-| ---- | ------ |
-| Registered commands | **Complete** |
+| Area                     | Status                     |
+| ------------------------ | -------------------------- |
+| Registered commands      | **Complete**               |
 | Unregistered tool-cmd-\* | Intentionally out of scope |
 
 ---
@@ -626,14 +636,14 @@ in Rust (see **Logical port** above).
 
 ## 7. Conclusion
 
-| Question | Answer |
-| -------- | ------ |
-| Direct line-for-line C++ port? | **No** — **logical port**: idiomatic Rust re-implementation of external behavior. |
-| Are the phase crates scaffolded? | **Yes** — 1A through 4B code exists and unit/mock tests pass. |
-| Is **wfanctl** replaceable by **dcuctl**? | **Yes** at the registered CLI surface; **runtime** needs daemon P0-1/P0-2. |
-| Is **wfantund** replaceable by **dcutund** today? | **No.** |
-| What is required for **T1 field drop-in**? | **P0-1…P0-5** (+ P1-9 packaging), measured by client/wire contracts—not by C file parity. |
-| What is required for **T2 behavioral completeness**? | T1 + all P1 items, with P1-7 driven by live property inventory. |
+| Question                                             | Answer                                                                                    |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Direct line-for-line C++ port?                       | **No** — **logical port**: idiomatic Rust re-implementation of external behavior.         |
+| Are the phase crates scaffolded?                     | **Yes** — 1A through 4B code exists and unit/mock tests pass.                             |
+| Is **wfanctl** replaceable by **dcuctl**?            | **Yes** at the registered CLI surface; **runtime** needs daemon P0-1/P0-2.                |
+| Is **wfantund** replaceable by **dcutund** today?    | **No.**                                                                                   |
+| What is required for **T1 field drop-in**?           | **P0-1…P0-5** (+ P1-9 packaging), measured by client/wire contracts—not by C file parity. |
+| What is required for **T2 behavioral completeness**? | T1 + all P1 items, with P1-7 driven by live property inventory.                           |
 
 Use **§4 Roadmap** as the implementation backlog. Update this file when a
 P0/P1 item is closed (status + commit hash), not when a crate merely
@@ -645,17 +655,17 @@ exists on disk.
 
 Claims re-checked after the first draft of this rewrite:
 
-| Claim | Result | Correction applied? |
-| ----- | ------ | ------------------- |
-| Session vs system bus | **Confirmed** | — |
-| No `GetInterfaces` / base object | **Confirmed** | — |
-| TUN not wired into daemon | **Confirmed** (`dcu_tun` only via error type + Cargo dep) | Added STREAM_NET C pointers |
-| No address manager | **Confirmed** | — |
-| No NetworkRetain runtime | **Confirmed** | — |
-| Missing D-Bus methods | **13 registered-in-C missing** | Removed false gap for PermitJoin/BeginNetWake |
-| ~325 vs ~40 properties | **Counts correct**; priority was overstated | Split T1/T2; inventory-first for P1-7 |
-| PropGet string vs variant | **Real wire difference** | Documented as intentional deviation |
-| Doc ready as sole implementor spec for P0-3+ | **No** | Added readiness table + per-gap design note |
+| Claim                                        | Result                                                    | Correction applied?                           |
+| -------------------------------------------- | --------------------------------------------------------- | --------------------------------------------- |
+| Session vs system bus                        | **Confirmed**                                             | —                                             |
+| No `GetInterfaces` / base object             | **Confirmed**                                             | —                                             |
+| TUN not wired into daemon                    | **Confirmed** (`dcu_tun` only via error type + Cargo dep) | Added STREAM_NET C pointers                   |
+| No address manager                           | **Confirmed**                                             | —                                             |
+| No NetworkRetain runtime                     | **Confirmed**                                             | —                                             |
+| Missing D-Bus methods                        | **13 registered-in-C missing**                            | Removed false gap for PermitJoin/BeginNetWake |
+| ~325 vs ~40 properties                       | **Counts correct**; priority was overstated               | Split T1/T2; inventory-first for P1-7         |
+| PropGet string vs variant                    | **Real wire difference**                                  | Documented as intentional deviation           |
+| Doc ready as sole implementor spec for P0-3+ | **No**                                                    | Added readiness table + per-gap design note   |
 
 **Honest answer to “is this ready for the implementor?”**
 
