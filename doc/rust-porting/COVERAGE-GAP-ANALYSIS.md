@@ -123,7 +123,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | Target | Drop-in today? | Verdict |
 | ------ | -------------- | ------- |
 | **wfanctl → dcuctl** | **Yes** (CLI surface) | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only (see P1-9). **Runtime unblocked after P0-1/P0-2 closed** — now works against a `dcutund` on the system bus. |
-| **wfantund → dcutund** | **No** | Core Spinel/D-Bus/task stack exists and mock-e2e passes, but **production data path, bus wiring, and several C subsystems are missing or unapplied**. Not a silent install-time replacement. |
+| **wfantund → dcutund** | **Partial** (Milestones A+B) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, and address/prefix/route manager are implemented. Remaining gaps: NetworkRetain, lifecycle, GPIO, auto-flags, StatCollector, Pcap, 13 D-Bus methods, NetworkTimeUpdate, property inventory. |
 
 ### Headline blockers for T1 field drop-in (P0)
 
@@ -131,8 +131,8 @@ this doc + `DBUSIPCServer.cpp` alone.
 | -- | --- | -------------------------------- | ------ |
 | **P0-1** | **System D-Bus bus** | C: `DBUSIPCServer.cpp:68` `DBUS_BUS_SYSTEM`. Rust: `dcu-dbus/src/server.rs` `Connection::system()` via `BusType::System` (default) + `DCU_DBUS_BUS` env override; `start_with_bus` added. **Closed** (6d1f72d) | DONE |
 | **P0-2** | **Base object `GetInterfaces`** | C: `DBUSIPCServer.cpp` ~286– registers base path method. Rust: `base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces` (`aas`) + `GetVersion` (`u`); per-iface `GetVersion` removed from `interface.rs`. `dcuctl` calls `GetVersion` on base proxy. **Closed** (6d1f72d) | DONE |
-| **P0-3** | **TUN data path not wired** | `dcu-tun` is a Cargo dep; only `DaemonError::Tun` references it. `start_pumps` opens serial only (`base.rs` ~843–884). No `STREAM_NET` / TUN bridge in daemon. C: `SPINEL_PROP_STREAM_NET` in `SpinelNCPInstance.cpp` ~6617+. | OPEN |
-| **P0-4** | **IPv6 address / prefix / route manager** | No `UnicastAddress`/`on_mesh` state in `dcu-tunnel-daemon`. C: `NCPInstanceBase-Addresses.cpp` (~1332 LOC). | OPEN |
+| **P0-3** | **TUN data path** | C: `SpinelNCPInstance.cpp` ~6617+ `SPINEL_PROP_STREAM_NET`. Rust: `start_pumps_impl` opens TUN (`dcu-tun::TunnelIPv6Interface`) + spawns `ncp_to_tun`/`tun_to_ncp` bridge tasks; `set_ncp_state` brings TUN up on interface-up. `crates/instance/tun_bridge.rs`. Added multicast join/leave (ioctl + interface). Spinel constants `PROP_STREAM_NET`/`_INSECURE`/`_RAW`/`_DEBUG` corrected against spec. **Closed** | DONE |
+| **P0-4** | **IPv6 address / prefix / route manager** | C: `NCPInstanceBase-Addresses.cpp` (~1332 LOC). Rust: `crates/instance/addresses.rs` — `AddressManager` with origin tracking (NCP/Interface/User), `apply_ncp_address_table`/`multicast`/`on_mesh`/`off_mesh` methods diffing full-table snapshots and returning `TunOp` vecs. NCP table frames forwarded from frame-task to main loop via channel; `apply_tun_ops` under write lock. `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes` served from DaemonState mirror. `PropInsert`/`PropRemove` for prefix/route keys updates AddressManager immediately + NCP push. **Closed** | DONE |
 | **P0-5** | **NetworkRetain** | Only string `"Config:Daemon:NetworkRetainCommand"` in `property_key.rs`. No runtime. C: `NetworkRetain.cpp` (~215 LOC). | OPEN |
 
 ### Secondary gaps (P1) — T2 / ops completeness
@@ -201,56 +201,50 @@ Rust `dcuctl` implements the same set (plus REPL quit aliases `quit`/`exit`/`q`)
 
 ### 2.1 Implemented (phases 1A–4B) — verified present
 
-| Area                             | Rust location                  | Notes                                                                |
-| -------------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| Types / property key constants   | `crates/wisun-types`           | Includes secure RNG, dataset-related keys                            |
-| Spinel codec + HDLC              | `crates/spinel`                | Fuzz target present                                                  |
-| TUN library                      | `crates/dcu-tun`               | Device, ioctl, packet matcher — **library only**                     |
-| Serial / TCP / `system:` / PTY   | `crates/dcu-serial`            | Transport dispatch implemented                                       |
-| D-Bus interface methods (subset) | `crates/dcu-dbus`              | Form/Join/Leave/Status/Prop\*/scans/Mfg/…                            |
-| D-Bus signals (subset)           | `crates/dcu-dbus/signals.rs`   | NetScanBeacon, EnergyScanResult, PropChanged, InterfaceAdded/Removed |
-| Daemon core + Spinel I/O         | `crates/dcu-tunnel-daemon`     | Response table, io_task, command dispatch                            |
-| Spinel tasks                     | `tasks/*`                      | form, join, leave, scan, sleep, peek, topology, joiner_commission, … |
-| Operational dataset              | `dataset.rs`                   | Codec + DaemonState mirror for `Dataset:*`                           |
-| Firmware upgrade helpers         | `firmware_upgrade.rs`          | Wired when `AutoFirmwareUpdate` is set                               |
-| Config parser                    | `config.rs`                    | wpantund.conf key subset                                             |
-| Mock NCP + e2e                   | `dcu-mock` + integration tests | form/join/startup/timeout vs mock                                    |
-| Runaway reset backoff            | `tasks/backoff.rs`             | Present                                                              |
+| Area                             | Rust location                  | Notes                                                                                                                       |
+| -------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Types / property key constants   | `crates/wisun-types`           | Includes secure RNG, dataset-related keys                                                                                   |
+| Spinel codec + HDLC              | `crates/spinel`                | Fuzz target present                                                                                                         |
+| TUN library                      | `crates/dcu-tun`               | Device, ioctl, packet matcher, multicast — **wired into daemon**                                                            |
+| TUN ↔ NCP bridge                 | `instance/tun_bridge.rs`       | `ncp_to_tun` + `tun_to_ncp` async tasks (STREAM_NET/INSECURE)                                                               |
+| Address / prefix / route manager | `instance/addresses.rs`        | `AddressManager` with origin tracking, NCP table sync, user insert/remove                                                   |
+| Multicast join/leave             | `dcu-tun/ioctl.rs`             | `IPV6_JOIN_GROUP`/`IPV6_LEAVE_GROUP` via `setsockopt`                                                                       |
+| Serial / TCP / `system:` / PTY   | `crates/dcu-serial`            | Transport dispatch implemented                                                                                              |
+| D-Bus interface methods (subset) | `crates/dcu-dbus`              | Form/Join/Leave/Status/Prop\*/scans/Mfg/… + **IPv6:AllAddresses, IPv6:Routes, Thread:OnMeshPrefixes, Thread:OffMeshRoutes** |
+| D-Bus signals (subset)           | `crates/dcu-dbus/signals.rs`   | NetScanBeacon, EnergyScanResult, PropChanged, InterfaceAdded/Removed                                                        |
+| Daemon core + Spinel I/O         | `crates/dcu-tunnel-daemon`     | Response table, io_task, command dispatch                                                                                   |
+| Spinel tasks                     | `tasks/*`                      | form, join, leave, scan, sleep, peek, topology, joiner_commission, …                                                        |
+| Operational dataset              | `dataset.rs`                   | Codec + DaemonState mirror for `Dataset:*`                                                                                  |
+| Firmware upgrade helpers         | `firmware_upgrade.rs`          | Wired when `AutoFirmwareUpdate` is set                                                                                      |
+| Config parser                    | `config.rs`                    | wpantund.conf key subset                                                                                                    |
+| Mock NCP + e2e                   | `dcu-mock` + integration tests | form/join/startup/timeout vs mock                                                                                           |
+| Runaway reset backoff            | `tasks/backoff.rs`             | Present                                                                                                                     |
 
 ### 2.2 True gaps (detailed)
 
 #### P0-1 — System bus (production D-Bus)
 
-|         | C                               | Rust today                                     |
-| ------- | ------------------------------- | ---------------------------------------------- |
-| Bus     | `dbus_bus_get(DBUS_BUS_SYSTEM)` | `Connection::session()` in `DbusServer::start` |
-| Clients | system bus                      | `dcuctl` uses system bus                       |
+|         | C                               | Rust today                                                                                                                                  |
+| ------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bus     | `dbus_bus_get(DBUS_BUS_SYSTEM)` | `Connection::system()` via `BusType::System` (default); `DCU_DBUS_BUS=session` env override for CI. `start_with_bus` added to `DbusServer`. |
+| Clients | system bus                      | `dcuctl` uses system bus                                                                                                                    |
 
-**Parity requirement:** Production `dcutund` must claim
-`com.nestlabs.WPANTunnelDriver` on the **system** bus (session only for
-tests). Prefer config/env override for CI (`DBUS_SESSION_BUS_ADDRESS` /
-explicit bus selection).
+**Status:** CLOSED (commit 6d1f72d). Production `dcutund` now claims
+`com.nestlabs.WPANTunnelDriver` on the **system** bus by default.
 
 #### P0-2 — Base object + `GetInterfaces`
 
 C (`DBUSIPCServer.cpp`): method on
-`/com/nestlabs/WPANTunnelDriver` returns `a{as}`-style array of
+`/com/nestlabs/WPANTunnelDriver` returns `aas`-style array of
 `[iface_name, unique_bus_name]` pairs.
 
-Rust: emits `InterfaceAdded` on the base path string but **never
-registers an object** at that path and has **no `GetInterfaces` method**.
+Rust: new `base_interface.rs` registers `BaseInterface` at
+`WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces() -> aas`
+(`[iface_name, unique_bus_name]`) and `GetVersion() -> u` (returns `2`).
+The per-interface `GetVersion` was removed from `WpanInterface` (C serves
+it from the base object). `dcuctl` calls `GetVersion` on the base proxy.
 
-**C object tree (from `DBUSIPCServer.cpp`):**
-
-```text
-/com/nestlabs/WPANTunnelDriver              base object
-    GetInterfaces                            → returns [ ["wfan0", ":1.x"], ... ]
-    GetVersion                               → base method (not per-interface)
-/com/nestlabs/WPANTunnelDriver/wfan0        per-interface object
-    PropGet/PropSet/Insert/Remove, Form, Join, Leave, ...
-```
-
-**Parity requirement:**
+**Status:** CLOSED (commit 6d1f72d). Full base object tree matches C:
 
 1. Register a base object at `WPANTUND_BASE_OBJECT_PATH`.
 2. Implement `GetInterfaces` returning the same wire shape C uses.
@@ -269,48 +263,34 @@ registers an object** at that path and has **no `GetInterfaces` method**.
 - NCP→host IPv6 delivery
 - use of `packet_matcher` on the live path
 
-**C entry points for implementors (start here):**
+**Implementation (CLOSED — Milestone B):**
 
-| Direction    | C hook                                                                                                  | Spinel            |
-| ------------ | ------------------------------------------------------------------------------------------------------- | ----------------- |
-| NCP → host   | `SpinelNCPInstance.cpp` ~6617+ (`SPINEL_PROP_STREAM_NET` / `_INSECURE`) → `handle_normal_ipv6_from_ncp` | `PROP_STREAM_NET` |
-| NCP raw/pcap | ~6492+ `SPINEL_PROP_STREAM_RAW`                                                                         | related to P1-2   |
-| Host → NCP   | NetInterface / AsyncIO TUN read → stream write                                                          | same STREAM props |
-| OS TUN       | `tunnel.c`, `TunnelIPv6Interface.*`, `netif-mgmt.c`                                                     | n/a               |
+| Direction    | Rust module                                           | Key files                                                                                                                                     |
+| ------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| NCP → host   | `instance/tun_bridge.rs` `ncp_to_tun`                 | TUN write of RAW IPv6 from `PROP_STREAM_NET` / `_INSECURE` frames forwarded via channel from `dispatch_unsolicited_static`                    |
+| Host → NCP   | `instance/tun_bridge.rs` `tun_to_ncp`                 | TUN async_read → `PROP_VALUE_SET(0x72/0x73)` with 5-byte Spinel header; insecure when NCP not associated                                      |
+| TUN open     | `start_pumps_impl` via `dcu-tun::TunnelIPv6Interface` | `TunConfig{name, mtu=1280, no_packet_info=true}`                                                                                              |
+| TUN up/down  | `set_ncp_state`                                       | `tun.set_up(state.is_associated())` on state transitions                                                                                      |
+| Multicast    | `dcu-tun/ioctl.rs`                                    | `IPV6_JOIN_GROUP`/`IPV6_LEAVE_GROUP` via `setsockopt`                                                                                         |
+| Constants    | `spinel/src/property.rs`                              | `PROP_STREAM_NET=0x72`, `PROP_STREAM_NET_INSECURE=0x73`, `PROP_STREAM_RAW=0x71`, `PROP_STREAM_DEBUG=0x70`, `PROP_MAC_RAW_STREAM_ENABLED=0x37` |
 
-**Parity requirement:**
-
-1. Create/up TUN from `Config:TUN:InterfaceName` (use `dcu-tun`).
-2. Bidirectional bridge on `PROP_STREAM_NET` (+ insecure if C does).
-3. Apply `IPv6PacketMatcher` on the live path.
-4. Integrate with address manager (P0-4).
-
-> **Implementor note:** This is the largest design item after D-Bus
-> plumbing. Do **not** start from this gap analysis alone — extract a
-> short design from the C functions above (frame layout, when TUN is
-> brought up, interaction with Associated state).
+(IPv6PacketMatcher on the live path is deferred — forward-all passthrough for now.)
 
 #### P0-4 — Address / prefix / route manager
 
-C `NCPInstanceBase-Addresses.cpp` (~1.3k LOC) maintains:
+**Implementation (CLOSED — Milestone B):**
 
-- Unicast / multicast address maps
-- On-mesh prefixes (SLAAC, interface routes)
-- Off-mesh routes
-- Origin tracking (NCP vs user vs daemon)
-- Sync to OS via netif/TUN
-
-Rust has TUN ioctl helpers (`add_ipv6`, routes) but **no daemon-level
-address state machine** and no PROP_VALUE_IS handling that installs
-addresses the way C does.
-
-**Parity requirement:** `addresses` module (or equivalent inside
-`instance/`) covering C behavior for:
-
-- `IPv6:AllAddresses` and related properties
-- NCP-driven address add/remove
-- User PropInsert/PropRemove for prefixes/routes
-- Coordination with TUN (P0-3)
+| Capability                        | Rust module / location                                                                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Origin tracking                   | `instance/addresses.rs` — `Origin::{Ncp, Interface, User}`                                                                                                                          |
+| NCP-driven unicast table sync     | `AddressManager::apply_ncp_address_table` → `TunOp::AddAddress/RemoveAddress`                                                                                                       |
+| NCP-driven multicast table sync   | `AddressManager::apply_ncp_multicast_table` → `TunOp::JoinMulticast/LeaveMulticast`                                                                                                 |
+| NCP-driven on-mesh prefix sync    | `AddressManager::apply_ncp_on_mesh_table` → `TunOp::AddRoute/RemoveRoute` (metric 256)                                                                                              |
+| NCP-driven off-mesh route sync    | `AddressManager::apply_ncp_off_mesh_table` → `TunOp::AddRoute/RemoveRoute`                                                                                                          |
+| User PropInsert/PropRemove        | `address_prop_insert`/`address_prop_remove` in `base.rs` → `insert_on_mesh`/`remove_on_mesh`/`insert_off_mesh`/`remove_off_mesh`                                                    |
+| D-Bus property serving            | `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes` in `properties.rs`, mirrored from AddressManager via `mirror_address_state`                     |
+| TUN convergence (lock discipline) | Write lock held across ops computation + `apply_tun_ops`; release then `mirror_address_state`                                                                                       |
+| Frame delivery                    | `is_address_table_frame` detects `IPV6_ADDRESS_TABLE`/`MULTICAST`/`ON_MESH_NETS`/`OFF_MESH_ROUTES` in spawned frame-task; forwarded via channel to main loop `handle_address_frame` |
 
 #### P0-5 — NetworkRetain
 
@@ -445,10 +425,10 @@ these flags.
 
 #### P1-7 — Property surface
 
-|                        | C                                        | Rust                                               |
-| ---------------------- | ---------------------------------------- | -------------------------------------------------- |
-| Named property defines | ~325 in `wpan-properties.h`              | ~50–80 string keys in `property_key` macro + tests |
-| Spinel handler map     | large switch tables in SpinelNCPInstance | ~40 entries in `property_handlers.rs`              |
+|                        | C                                        | Rust                                                                                                                                                      |
+| ---------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Named property defines | ~325 in `wpan-properties.h`              | ~50–80 string keys in `property_key` macro + tests                                                                                                        |
+| Spinel handler map     | large switch tables in SpinelNCPInstance | ~50 entries in `property_handlers.rs` + `handle_get_property` (incl. `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes`) |
 
 Not every C key is active on TI Wi-SUN firmware, but **100% parity**
 means:
@@ -566,34 +546,34 @@ in Rust (see **Logical port** above).
 
 ### Daemon core (`src/wfantund/`)
 
-| C source                                            | LOC (approx)         | Rust status                                           |
-| --------------------------------------------------- | -------------------- | ----------------------------------------------------- |
-| `wpantund.cpp`                                      | main loop, lifecycle | Partial — main/signals exist; no pid/priv/chroot      |
-| `NCPInstanceBase.cpp`                               | large                | Partial — state machine / props subset                |
-| `NCPInstanceBase-Addresses.cpp`                     | ~1332                | **Missing** (P0-4)                                    |
-| `NCPInstanceBase-AsyncIO.cpp`                       | ~260                 | Partial — Spinel I/O only; no TUN bridge              |
-| `NCPInstanceBase-NetInterface.cpp`                  | ~477                 | **Missing / unwired** (P0-3)                          |
-| `NCPControlInterface.cpp`                           | API surface          | Partial via D-Bus commands                            |
-| `NCPInstance.cpp`                                   | factory              | `NcpInstance` wrapper                                 |
-| `FirmwareUpgrade.cpp`                               | ~433                 | Present + partially wired                             |
-| `RunawayResetBackoffManager.cpp`                    | small                | Present (`backoff.rs`)                                |
-| `NetworkRetain.cpp`                                 | ~215                 | **Missing** (P0-5)                                    |
-| `Pcap.cpp`                                          | ~378                 | **Missing** (P1-2)                                    |
-| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1)                                    |
-| `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types                | `wisun-types`                                         |
-| `NCPMfgInterface_v0/v1.h`                           | mfg API              | v1 `Mfg` method present; v0 granular APIs not exposed |
+| C source                                            | LOC (approx)         | Rust status                                                                                                        |
+| --------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `wpantund.cpp`                                      | main loop, lifecycle | Partial — main/signals exist; no pid/priv/chroot                                                                   |
+| `NCPInstanceBase.cpp`                               | large                | Partial — state machine / props subset                                                                             |
+| `NCPInstanceBase-Addresses.cpp`                     | ~1332                | `instance/addresses.rs` — AddressManager with origin tracking, NCP table sync, user insert/remove **(done: P0-4)** |
+| `NCPInstanceBase-AsyncIO.cpp`                       | ~260                 | TUN bridge tasks `tun_bridge.rs` + `TunnelIPv6Interface` in `start_pumps_impl` **(done: P0-3)**                    |
+| `NCPInstanceBase-NetInterface.cpp`                  | ~477                 | TUN open/up + bidirectional stream bridge **(done: P0-3)**                                                         |
+| `NCPControlInterface.cpp`                           | API surface          | Partial via D-Bus commands                                                                                         |
+| `NCPInstance.cpp`                                   | factory              | `NcpInstance` wrapper                                                                                              |
+| `FirmwareUpgrade.cpp`                               | ~433                 | Present + partially wired                                                                                          |
+| `RunawayResetBackoffManager.cpp`                    | small                | Present (`backoff.rs`)                                                                                             |
+| `NetworkRetain.cpp`                                 | ~215                 | **Missing** (P0-5)                                                                                                 |
+| `Pcap.cpp`                                          | ~378                 | **Missing** (P1-2)                                                                                                 |
+| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1)                                                                                                 |
+| `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types                | `wisun-types`                                                                                                      |
+| `NCPMfgInterface_v0/v1.h`                           | mfg API              | v1 `Mfg` method present; v0 granular APIs not exposed                                                              |
 
 ### Util (compiled into daemon)
 
-| C source                                              | Rust status                                        |
-| ----------------------------------------------------- | -------------------------------------------------- |
-| `socket-utils.c`                                      | `dcu-serial` dispatch (UART/TCP/system) — **done** |
-| `tunnel.c` / `TunnelIPv6Interface.*` / `netif-mgmt.c` | `dcu-tun` library — **not wired into daemon**      |
-| `IPv6PacketMatcher.*`                                 | `dcu-tun/packet_matcher.rs` — **not on live path** |
-| `IPv6Helpers.*`                                       | Partial via `ipnet` / helpers                      |
-| `config-file.c`                                       | `config.rs`                                        |
-| `sec-random.c`                                        | `wisun-types/secure_random.rs`                     |
-| Timer / RingBuffer / nlpt / ValueMap / …              | std / tokio / HashMap — no port needed             |
+| C source                                              | Rust status                                                                                                                             |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `socket-utils.c`                                      | `dcu-serial` dispatch (UART/TCP/system) — **done**                                                                                      |
+| `tunnel.c` / `TunnelIPv6Interface.*` / `netif-mgmt.c` | `dcu-tun` library — **wired into daemon** (`start_pumps_impl` opens TUN, bridge tasks use async read/write; multicast via `setsockopt`) |
+| `IPv6PacketMatcher.*`                                 | `dcu-tun/packet_matcher.rs` — **not on live path** (deferred; forward-all passthrough)                                                  |
+| `IPv6Helpers.*`                                       | Partial via `ipnet` / helpers                                                                                                           |
+| `config-file.c`                                       | `config.rs`                                                                                                                             |
+| `sec-random.c`                                        | `wisun-types/secure_random.rs`                                                                                                          |
+| Timer / RingBuffer / nlpt / ValueMap / …              | std / tokio / HashMap — no port needed                                                                                                  |
 
 ### NCP Spinel plugin (`src/ncp-spinel/`)
 
@@ -608,12 +588,12 @@ in Rust (see **Logical port** above).
 
 ### IPC D-Bus (`src/ipc-dbus/`)
 
-| C source            | Rust status                                        |
-| ------------------- | -------------------------------------------------- |
-| `DBusIPCAPI.cpp`    | Partial method set (P1-3)                          |
-| `DBUSIPCServer.cpp` | Partial — missing base `GetInterfaces`, system bus |
-| `wpan-dbus.h`       | Constants mirrored incompletely                    |
-| `DBUSHelpers.cpp`   | `properties::variant_to_string` subset             |
+| C source            | Rust status                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| `DBusIPCAPI.cpp`    | Partial method set (P1-3)                                                                  |
+| `DBUSIPCServer.cpp` | **Matched** — base `GetInterfaces` + `GetVersion` on base object, system bus (Milestone A) |
+| `wpan-dbus.h`       | Constants mirrored incompletely                                                            |
+| `DBUSHelpers.cpp`   | `properties::variant_to_string` subset                                                     |
 
 ### CLI (`src/wfanctl/`)
 
@@ -651,17 +631,19 @@ exists on disk.
 
 ---
 
-## 9. Implementation log (Milestone A — P0-1, P0-2, P1-9)
+## 9. Implementation log (Milestones A+B — P0-1..P0-4, P1-9)
 
-| Date       | Item                                   | Commit     | What changed                                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------- | -------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-07-13 | **P0-1** System bus                    | 6d1f72d    | `dcu-dbus/src/server.rs`: added `BusType` (default `System`) + `start_with_bus`; `main.rs` reads `DCU_DBUS_BUS=session` for CI. Production now claims the well-known name on the **system** bus.                                                                                                                                                                                                          |
-| 2026-07-13 | **P0-2** Base object + `GetInterfaces` | 6d1f72d    | New `dcu-dbus/src/base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces() -> aas` (returns `[iface_name, unique_bus_name]`) and `GetVersion() -> u` (returns `2`). Removed `GetVersion` from the per-interface `WpanInterface` (C serves it from the base object). `dcuctl` now calls `GetVersion` on the base proxy and compares the numeric protocol version. |
-| 2026-07-13 | **P1-9** Install/packaging names       | 6d1f72d    | New `packaging/install.sh` symlinks `/usr/local/sbin/wfantund -> dcutund` and `/usr/local/bin/wfanctl -> dcuctl`, installs unchanged `wpantund.conf`, and (when systemd present) `dcu-daemon.service` with `DCU_DBUS_BUS=system`. README documents the drop-in install.                                                                                                                                   |
+| Date       | Item                                      | Commit     | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ----------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-07-13 | **P0-1** System bus                       | 6d1f72d    | `dcu-dbus/src/server.rs`: added `BusType` (default `System`) + `start_with_bus`; `main.rs` reads `DCU_DBUS_BUS=session` for CI. Production now claims the well-known name on the **system** bus.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 2026-07-13 | **P0-2** Base object + `GetInterfaces`    | 6d1f72d    | New `dcu-dbus/src/base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces() -> aas` (returns `[iface_name, unique_bus_name]`) and `GetVersion() -> u` (returns `2`). Removed `GetVersion` from the per-interface `WpanInterface` (C serves it from the base object). `dcuctl` now calls `GetVersion` on the base proxy and compares the numeric protocol version.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 2026-07-13 | **P1-9** Install/packaging names          | 6d1f72d    | New `packaging/install.sh` symlinks `/usr/local/sbin/wfantund -> dcutund` and `/usr/local/bin/wfanctl -> dcuctl`, installs unchanged `wpantund.conf`, and (when systemd present) `dcu-daemon.service` with `DCU_DBUS_BUS=system`. README documents the drop-in install.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 2026-07-13 | **P0-3** TUN data path                    | (staged)   | `spinel/src/property.rs`: corrected `PROP_STREAM_NET=0x72`, `PROP_STREAM_NET_INSECURE=0x73`, `PROP_STREAM_RAW=0x71`, `PROP_MAC_RAW_STREAM_ENABLED=0x37`, `PROP_IPV6_ADDRESS_TABLE=0x63` against OpenThread spec. `start_pumps_impl` opens TUN (`dcu-tun::TunnelIPv6Interface`). New `instance/tun_bridge.rs`: `ncp_to_tun` (NCP→host, from channel) and `tun_to_ncp` (host→NCP, insecure before associated). TUN brought up in `set_ncp_state` when associated. Multicast join/leave via `IPV6_JOIN_GROUP`/`IPV6_LEAVE_GROUP` in `dcu-tun/ioctl.rs`. Stream frames forwarded from `dispatch_unsolicited_static` via `stream_net_tx`.                                                                                                                                                                                                   |
+| 2026-07-13 | **P0-4** Address / prefix / route manager | (staged)   | New `instance/addresses.rs`: `AddressManager` with `Origin::{Ncp, Interface, User}`, unicast/multicast/on-mesh/off-mesh maps, full-table snapshot diff methods (`apply_ncp_address_table` etc. returning `Vec<TunOp>`). NCP table props forwarded from frame-task to main loop via `address_frame_tx`/`rx`. `handle_address_frame` parses `IPV6_ADDRESS_TABLE`/`MULTICAST`/`ON_MESH_NETS`/`OFF_MESH_ROUTES`, holds write lock across TUN ops. `mirror_address_state` copies views into `DaemonState`. `address_prop_insert`/`address_prop_remove` wire `PropInsert`/`PropRemove` for `Thread:OnMeshPrefixes`/`Thread:OffMeshRoutes` with immediate AddressManager update + TUN apply. `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes` served from `properties.rs`. Added to `all_property_keys()`. |
 
-**Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after Milestone A.
+**Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after both milestones.
 
-**Still open after A:** P0-3 (TUN data path), P0-4 (address manager), P0-5 (NetworkRetain), and all P1 items (see §4 roadmap + `plans/rust-porting-gap-implementation.md`).
+**Still open after B:** P0-5 (NetworkRetain), P1-1 (StatCollector), P1-2 (Pcap), P1-3 (13 D-Bus methods), P1-4 (lifecycle), P1-5 (GPIO), P1-6 (auto-flags), P1-7 (property inventory), P1-8 (NetworkTimeUpdate signal).
 
 ---
 
