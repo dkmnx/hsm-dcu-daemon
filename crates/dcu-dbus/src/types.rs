@@ -117,6 +117,18 @@ pub struct DaemonState {
     // --- Daemon ---
     pub daemon_enabled: bool,
     pub ready_for_host_sleep: bool,
+
+    // --- Address/prefix/route views (P0-4) ----
+    /// Stringified `IPv6:AllAddresses` entries, refreshed from the
+    /// AddressManager after each NCP table snapshot.
+    pub ipv6_all_addresses: Vec<String>,
+    /// Stringified `IPv6:Routes` entries (OS-side interface routes only,
+    /// matching C `mInterfaceRoutes` / `get_prop_IPv6InterfaceRoutes`).
+    pub ipv6_routes: Vec<String>,
+    /// Stringified `Thread:OnMeshPrefixes` entries.
+    pub on_mesh_prefixes: Vec<String>,
+    /// Stringified `Thread:OffMeshRoutes` entries.
+    pub off_mesh_routes: Vec<String>,
 }
 
 impl Default for DaemonState {
@@ -151,6 +163,10 @@ impl Default for DaemonState {
             dataset: std::collections::HashMap::new(),
             daemon_enabled: false,
             ready_for_host_sleep: false,
+            ipv6_all_addresses: Vec::new(),
+            ipv6_routes: Vec::new(),
+            on_mesh_prefixes: Vec::new(),
+            off_mesh_routes: Vec::new(),
         }
     }
 }

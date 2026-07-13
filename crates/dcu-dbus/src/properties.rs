@@ -69,6 +69,10 @@ pub fn get_property_locked(name: &str, state: &DaemonState) -> Result<Variant, D
         "IPv6:LinkLocalAddress" => Value::from(state.link_local_address.to_string()),
         "IPv6:MeshLocalAddress" => Value::from(state.mesh_local_address.to_string()),
         "IPv6:MeshLocalPrefix" => Value::from(state.mesh_local_prefix.clone()),
+        "IPv6:AllAddresses" => Value::from(state.ipv6_all_addresses.join("\n")),
+        "IPv6:Routes" => Value::from(state.ipv6_routes.join("\n")),
+        "Thread:OnMeshPrefixes" => Value::from(state.on_mesh_prefixes.join("\n")),
+        "Thread:OffMeshRoutes" => Value::from(state.off_mesh_routes.join("\n")),
 
         // --- Interface / Stack ---
         "Interface:Up" => Value::from(state.interface_up),
@@ -329,6 +333,10 @@ pub fn all_property_keys() -> &'static [&'static str] {
         "IPv6:LinkLocalAddress",
         "IPv6:MeshLocalAddress",
         "IPv6:MeshLocalPrefix",
+        "IPv6:AllAddresses",
+        "IPv6:Routes",
+        "Thread:OnMeshPrefixes",
+        "Thread:OffMeshRoutes",
         "Interface:Up",
         "Stack:Up",
         "Daemon:Version",

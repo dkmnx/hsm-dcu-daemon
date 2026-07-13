@@ -40,6 +40,33 @@ fn alloc_tid() -> u8 {
     NEXT_TID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 15 + 1
 }
 
+/// Returns `true` if the frame is an address/prefix/route table snapshot
+/// that should be forwarded to the main loop for address-manager processing.
+fn is_address_table_frame(frame: &SpinelFrame) -> bool {
+    if frame.command_id != spinel::command::CMD_PROP_VALUE_IS {
+        return false;
+    }
+    let prop = match spinel::pack::PackReader::new(&frame.payload).read_uint_packed() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    matches!(
+        prop,
+        spinel::property::PROP_IPV6_ADDRESS_TABLE
+            | spinel::property::PROP_IPV6_MULTICAST_ADDRESS_TABLE
+            | spinel::property::PROP_THREAD_ON_MESH_NETS
+            | spinel::property::PROP_THREAD_OFF_MESH_ROUTES
+    )
+}
+
+/// Read one Spinel `STRUCT_S` / `"D."` array entry: a uint16 LE length
+/// prefix followed by that many bytes of struct payload. Returns `None`
+/// when the reader is exhausted or the length exceeds remaining data.
+fn read_struct_entry<'a>(r: &mut spinel::pack::PackReader<'a>) -> Option<&'a [u8]> {
+    let len = r.read_uint16().ok()? as usize;
+    r.read_bytes(len).ok()
+}
+
 /// Static variant of dataset decoding for use in the frame-processing task
 /// (operates on cloned `Arc<RwLock<...>>` handles, not `&self`).
 async fn handle_dataset_frame_static(
@@ -260,6 +287,34 @@ pub struct NcpInstanceBase {
     driver_state_changed: Arc<Notify>,
 
     config: Config,
+
+    /// The host TUN interface (Linux data plane). Opened in `start_pumps`
+    /// and used by the bridge tasks to move IPv6 packets between the host
+    /// and the NCP over `SPINEL_PROP_STREAM_NET`. `None` until the TUN is
+    /// opened (tests using `start_pumps_with_transport` leave it `None`).
+    tun: Option<dcu_tun::TunnelIPv6Interface>,
+
+    /// NCP→host IPv6 packet delivery channel. `dispatch_unsolicited_static`
+    /// forwards `PROP_STREAM_NET` / `PROP_STREAM_NET_INSECURE` frames here;
+    /// the `ncp_to_tun` bridge task reads them and writes to the TUN.
+    stream_net_tx: mpsc::UnboundedSender<SpinelFrame>,
+
+    /// NCP address/prefix/route table frame channel. The spawned
+    /// frame-task forwards `IPV6_ADDRESS_TABLE` / `MULTICAST_ADDRESS_TABLE` /
+    /// `THREAD_ON_MESH_NETS` / `THREAD_OFF_MESH_ROUTES` frames here; the main
+    /// `run()` loop receives them and calls `handle_address_frame` (which
+    /// needs access to `self.tun` and `self.address_manager`, not available in
+    /// the spawned task).
+    address_frame_rx: mpsc::UnboundedReceiver<SpinelFrame>,
+    address_frame_tx: mpsc::UnboundedSender<SpinelFrame>,
+
+    /// Address / prefix / route manager (P0-4). Tracks NCP-reported and
+    /// user-inserted addresses/prefixes/routes and computes the TUN ops
+    /// needed to converge the host interface.
+    address_manager: tokio::sync::RwLock<crate::instance::addresses::AddressManager>,
+
+    /// Bridge task JoinHandles for clean stop (P1-3 fix).
+    bridge_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl NcpInstanceBase {
@@ -271,6 +326,8 @@ impl NcpInstanceBase {
         // Channels are created in start_pumps() alongside the I/O task.
         // Until then, build stub channels so run() doesn't panic.
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
+        let (stream_net_tx, _stream_net_rx) = mpsc::unbounded_channel();
+        let (address_frame_tx, address_frame_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
             ncp_state: Arc::new(RwLock::new(NcpState::Uninitialized)),
@@ -292,6 +349,14 @@ impl NcpInstanceBase {
             backoff: crate::tasks::backoff::BackoffManager::new(),
             driver_state_changed: Arc::new(Notify::new()),
             config,
+            tun: None,
+            stream_net_tx,
+            address_frame_rx,
+            address_frame_tx,
+            address_manager: tokio::sync::RwLock::new(
+                crate::instance::addresses::AddressManager::new(),
+            ),
+            bridge_tasks: Vec::new(),
         })
     }
 
@@ -324,6 +389,8 @@ impl NcpInstanceBase {
         // responses via the response table.
         let response_table = self.response_table.clone();
         let scan_collector = self.scan_collector.clone();
+        let stream_net_tx = self.stream_net_tx.clone();
+        let address_frame_tx = self.address_frame_tx.clone();
         let active_dataset = self.active_dataset.clone();
         let pending_dataset = self.pending_dataset.clone();
         let shared_state = self.shared_state.clone();
@@ -343,8 +410,16 @@ impl NcpInstanceBase {
                                 if handle_dataset_frame_static(&frame, &active_dataset, &pending_dataset, &shared_state).await {
                                     continue;
                                 }
+                                // Address table frames are forwarded to the
+                                // main loop (needs self.tun to apply TUN ops).
+                                if is_address_table_frame(&frame) {
+                                    if address_frame_tx.send(frame).is_err() {
+                                        tracing::warn!("Address frame channel closed");
+                                    }
+                                    continue;
+                                }
                                 if !response_table.deliver(&frame) {
-                                    Self::dispatch_unsolicited_static(&frame, &scan_collector).await;
+                                    Self::dispatch_unsolicited_static(&frame, &scan_collector, &stream_net_tx).await;
                                 }
                             }
                             None => break,
@@ -459,6 +534,11 @@ impl NcpInstanceBase {
             }
         }
 
+        // Own the address frame receiver inside the method scope so we can
+        // pass it to tokio::select! alongside command_rx.
+        let mut address_frame_rx =
+            std::mem::replace(&mut self.address_frame_rx, mpsc::unbounded_channel().1);
+
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
@@ -466,6 +546,11 @@ impl NcpInstanceBase {
                     match cmd {
                         Some(cmd) => { let _ = self.handle_command(cmd).await; }
                         None => break,
+                    }
+                }
+                addr_frame = address_frame_rx.recv() => {
+                    if let Some(frame) = addr_frame {
+                        self.handle_address_frame(&frame).await;
                     }
                 }
             }
@@ -488,6 +573,7 @@ impl NcpInstanceBase {
         scan_collector: &std::sync::Arc<
             tokio::sync::RwLock<Option<mpsc::UnboundedSender<SpinelFrame>>>,
         >,
+        stream_net_tx: &mpsc::UnboundedSender<SpinelFrame>,
     ) {
         if frame.command_id != spinel::command::CMD_PROP_VALUE_IS {
             tracing::trace!("Unsolicited cmd={}", frame.command_id);
@@ -509,8 +595,256 @@ impl NcpInstanceBase {
                     *scan_collector.write().await = None;
                 }
             }
+        } else if prop == spinel::property::PROP_STREAM_NET
+            || prop == spinel::property::PROP_STREAM_NET_INSECURE
+        {
+            // NCP→host IPv6 packet: forward to the TUN bridge task.
+            if stream_net_tx.send(frame.clone()).is_err() {
+                tracing::trace!("STREAM_NET receiver dropped; TUN bridge stopped");
+            }
         } else {
             tracing::trace!("Unsolicited property 0x{prop:04X}");
+        }
+    }
+
+    /// Intercept `PropInsert` for address/prefix/route properties.
+    /// Updates the local AddressManager immediately and applies TUN ops,
+    /// before the NCP round-trip converges (mirrors C behavior).
+    async fn address_prop_insert(&self, name: &str, value: &dcu_dbus::types::Variant) {
+        let s = dcu_dbus::properties::variant_to_string(value);
+        let mut am = self.address_manager.write().await;
+        let ops = match name {
+            "Thread:OnMeshPrefixes" => {
+                if let Ok(net) = s.parse::<dcu_tun::Ipv6Net>() {
+                    am.insert_on_mesh(net, true).1
+                } else {
+                    return;
+                }
+            }
+            "Thread:OffMeshRoutes" => {
+                if let Ok(net) = s.parse::<dcu_tun::Ipv6Net>() {
+                    am.insert_off_mesh(net, 256).1
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+        // Keep the write lock across TUN ops to prevent a concurrent
+        // handle_address_frame from computing conflicting ops (P1 race).
+        self.apply_tun_ops(ops).await;
+        drop(am);
+        self.mirror_address_state().await;
+    }
+
+    /// Intercept `PropRemove` for address/prefix/route properties.
+    async fn address_prop_remove(&self, name: &str, value: &dcu_dbus::types::Variant) {
+        let s = dcu_dbus::properties::variant_to_string(value);
+        let mut am = self.address_manager.write().await;
+        let ops = match name {
+            "Thread:OnMeshPrefixes" => {
+                if let Ok(net) = s.parse::<dcu_tun::Ipv6Net>() {
+                    am.remove_on_mesh(net).1
+                } else {
+                    return;
+                }
+            }
+            "Thread:OffMeshRoutes" => {
+                if let Ok(net) = s.parse::<dcu_tun::Ipv6Net>() {
+                    am.remove_off_mesh(net).1
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+        self.apply_tun_ops(ops).await;
+        drop(am);
+        self.mirror_address_state().await;
+    }
+
+    /// Mirror the AddressManager view into DaemonState (for D-Bus property
+    /// handlers). Must be called without the address_manager lock held.
+    async fn mirror_address_state(&self) {
+        let am = self.address_manager.read().await;
+        let (addrs, routes, mesh, off_mesh) = (
+            am.all_addresses(),
+            am.routes(),
+            am.on_mesh_prefixes(),
+            am.off_mesh_routes(),
+        );
+        drop(am);
+        let mut ds = self.shared_state.write().await;
+        ds.ipv6_all_addresses = addrs;
+        ds.ipv6_routes = routes;
+        ds.on_mesh_prefixes = mesh;
+        ds.off_mesh_routes = off_mesh;
+    }
+
+    /// Handle a `PROP_VALUE_IS` frame carrying an IPv6 address/prefix/route
+    /// table snapshot. Parses the table, updates the [`AddressManager`], and
+    /// applies the resulting TUN ops to the host interface (no-op if the TUN
+    /// is not open, e.g. under test-util). NCP-origin entries are never
+    /// pushed back to the NCP.
+    ///
+    /// Returns `true` if the frame was an address-table frame (so the caller
+    /// can skip generic unsolicited handling).
+    async fn handle_address_frame(&self, frame: &SpinelFrame) -> bool {
+        let prop = match spinel::pack::PackReader::new(&frame.payload).read_uint_packed() {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        let mut r = spinel::pack::PackReader::new(&frame.payload);
+        let _ = r.read_uint_packed(); // skip prop id
+
+        // Hold the write lock across AddressManager mutation so that a
+        // concurrent handle_address_frame cannot interleave between the
+        // ops computation and DaemonState mirroring (P2 race).
+        let mut am = self.address_manager.write().await;
+
+        let ops = match prop {
+            spinel::property::PROP_IPV6_ADDRESS_TABLE => {
+                let mut addrs = Vec::new();
+                while r.remaining() >= 2 {
+                    let entry = match read_struct_entry(&mut r) {
+                        Some(e) => e,
+                        None => break,
+                    };
+                    let mut er = spinel::pack::PackReader::new(entry);
+                    let bytes = match er.read_ipv6() {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+                    let prefix = match er.read_uint8() {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+                    addrs.push((std::net::Ipv6Addr::from(bytes), prefix));
+                }
+                am.apply_ncp_address_table(&addrs)
+            }
+            spinel::property::PROP_IPV6_MULTICAST_ADDRESS_TABLE => {
+                let mut addrs = Vec::new();
+                while r.remaining() >= 2 {
+                    let entry = match read_struct_entry(&mut r) {
+                        Some(e) => e,
+                        None => break,
+                    };
+                    let mut er = spinel::pack::PackReader::new(entry);
+                    match er.read_ipv6() {
+                        Ok(b) => addrs.push(std::net::Ipv6Addr::from(b)),
+                        Err(_) => continue,
+                    }
+                }
+                am.apply_ncp_multicast_table(&addrs)
+            }
+            spinel::property::PROP_THREAD_ON_MESH_NETS => {
+                let mut nets = Vec::new();
+                while r.remaining() >= 2 {
+                    let entry = match read_struct_entry(&mut r) {
+                        Some(e) => e,
+                        None => break,
+                    };
+                    let mut er = spinel::pack::PackReader::new(entry);
+                    let bytes = match er.read_ipv6() {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+                    let prefix_len = match er.read_uint8() {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+                    let stable = er.read_bool().unwrap_or(false);
+                    let _flags = er.read_uint8().unwrap_or(0);
+                    let is_local = er.read_bool().unwrap_or(false);
+                    if is_local {
+                        continue;
+                    }
+                    let net =
+                        match dcu_tun::Ipv6Net::new(std::net::Ipv6Addr::from(bytes), prefix_len) {
+                            Ok(n) => n,
+                            Err(_) => continue,
+                        };
+                    nets.push((net, stable));
+                }
+                am.apply_ncp_on_mesh_table(&nets)
+            }
+            spinel::property::PROP_THREAD_OFF_MESH_ROUTES => {
+                let mut nets = Vec::new();
+                while r.remaining() >= 2 {
+                    let entry = match read_struct_entry(&mut r) {
+                        Some(e) => e,
+                        None => break,
+                    };
+                    let mut er = spinel::pack::PackReader::new(entry);
+                    let bytes = match er.read_ipv6() {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+                    let prefix_len = match er.read_uint8() {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+                    let _stable = er.read_bool().unwrap_or(false);
+                    let flags = er.read_uint8().unwrap_or(0);
+                    let is_local = er.read_bool().unwrap_or(false);
+                    if is_local {
+                        continue;
+                    }
+                    let metric = match flags & 0xC0 {
+                        0x40 => 1,
+                        0xC0 => 512,
+                        _ => 256,
+                    };
+                    let net =
+                        match dcu_tun::Ipv6Net::new(std::net::Ipv6Addr::from(bytes), prefix_len) {
+                            Ok(n) => n,
+                            Err(_) => continue,
+                        };
+                    nets.push((net, metric));
+                }
+                am.apply_ncp_off_mesh_table(&nets)
+            }
+            _ => return false,
+        };
+
+        // Apply TUN ops while still holding the address_manager write lock
+        // so a concurrent handle_address_frame cannot modify state between
+        // ops computation and TUN application (P2 race). tokio::sync RwLock
+        // is safe to hold across async I/O (yields the task).
+        self.apply_tun_ops(ops).await;
+
+        // Release the write lock and mirror the new state to DaemonState.
+        drop(am);
+        self.mirror_address_state().await;
+        true
+    }
+
+    /// Apply a batch of TUN ops to the host interface (if open).
+    async fn apply_tun_ops(&self, ops: Vec<crate::instance::addresses::TunOp>) {
+        let Some(tun) = &self.tun else {
+            return;
+        };
+        for op in ops {
+            let res = match op {
+                crate::instance::addresses::TunOp::AddAddress(a, p) => tun.add_address(a, p),
+                crate::instance::addresses::TunOp::RemoveAddress(a, p) => tun.remove_address(a, p),
+                crate::instance::addresses::TunOp::AddRoute(n, m) => {
+                    tun.add_route(n, None, m).map(|_| ())
+                }
+                crate::instance::addresses::TunOp::RemoveRoute(n, m) => {
+                    tun.remove_route(n, m).map(|_| ())
+                }
+                crate::instance::addresses::TunOp::JoinMulticast(a) => {
+                    tun.join_multicast_address(a)
+                }
+                crate::instance::addresses::TunOp::LeaveMulticast(a) => {
+                    tun.leave_multicast_address(a)
+                }
+            };
+            if let Err(e) = res {
+                tracing::warn!("TUN op failed: {e}");
+            }
         }
     }
 
@@ -876,9 +1210,58 @@ impl NcpInstanceBase {
             transport,
             outbound_rx,
             self.frame_tx.clone(),
-            cancel,
+            cancel.clone(),
         ));
         tracing::info!("I/O task spawned");
+
+        // Open the host TUN interface and start the bidirectional IPv6
+        // bridge between it and the NCP over SPINEL_PROP_STREAM_NET.
+        // Production only — tests use an in-memory transport and leave
+        // `self.tun` as `None` (apply_tun_ops and set_ncp_state handle that).
+        #[cfg(not(feature = "test-util"))]
+        {
+            let tun_name = self.config.tun_interface_name.clone();
+            let tun = dcu_tun::TunnelIPv6Interface::new(dcu_tun::TunConfig {
+                name: tun_name.clone(),
+                mtu: 1280,
+                no_packet_info: true,
+            })
+            .map_err(DaemonError::Tun)?;
+            tracing::info!("TUN interface opened: {}", tun.name());
+            self.tun = Some(tun);
+
+            // The NCP→host channel is owned here; the bridge task takes the
+            // receiver. `dispatch_unsolicited_static` holds the sender clone.
+            let (stream_net_tx, stream_net_rx) = mpsc::unbounded_channel();
+            self.stream_net_tx = stream_net_tx;
+
+            let tun_ref = self
+                .tun
+                .as_ref()
+                .expect("tun just opened")
+                .try_clone()
+                .map_err(DaemonError::Tun)?;
+            let outbound_tx = self.outbound_tx.clone();
+            let ncp_state = self.ncp_state.clone();
+            self.bridge_tasks
+                .push(tokio::spawn(crate::instance::tun_bridge::ncp_to_tun(
+                    tun_ref,
+                    stream_net_rx,
+                    cancel.clone(),
+                )));
+            self.bridge_tasks
+                .push(tokio::spawn(crate::instance::tun_bridge::tun_to_ncp(
+                    self.tun
+                        .as_ref()
+                        .expect("tun just opened")
+                        .try_clone()
+                        .map_err(DaemonError::Tun)?,
+                    outbound_tx,
+                    ncp_state,
+                    cancel,
+                )));
+            tracing::info!("TUN bridge tasks spawned");
+        }
         Ok(())
     }
 
@@ -899,8 +1282,13 @@ impl NcpInstanceBase {
         if let Some(cancel) = self.io_cancel.take() {
             cancel.cancel();
         }
-        // Abort the frame-processing task so it can't outlive the instance.
+        // Abort the frame-processing task and bridge tasks so they can't
+        // outlive the instance.
         if let Some(handle) = self.frame_task.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+        for handle in self.bridge_tasks.drain(..) {
             handle.abort();
             let _ = handle.await;
         }
@@ -960,6 +1348,20 @@ impl NcpInstanceBase {
                 _ => {}
             }
         }
+
+        // Bring the host TUN interface up/down as the NCP crosses the
+        // interface-up boundary (mirrors C set_online in
+        // NCPInstanceBase-NetInterface.cpp). The TUN is only present when
+        // start_pumps opened it (production); test-util leaves it None.
+        if let Some(tun) = &self.tun {
+            let up = state.is_associated();
+            if let Err(e) = tun.set_up(up) {
+                tracing::warn!("Failed to set TUN {} up={up}: {e}", tun.name());
+            } else {
+                tracing::info!("TUN {} set up={up}", tun.name());
+            }
+        }
+
         self.state_changed.notify_waiters();
     }
 
@@ -1248,6 +1650,12 @@ impl NcpInstanceBase {
             }
             // --- List property mutations ---
             Command::PropInsert { name, value } => {
+                // Update the local AddressManager *before* pushing to NCP,
+                // so IPv6:AllAddresses / Thread:OnMeshPrefixes reflect
+                // immediately (C does the same). NCP full-table snapshots
+                // will converge later.
+                self.address_prop_insert(&name, &value).await;
+
                 use zbus::zvariant::Value;
                 let handler = crate::instance::property_handlers::lookup(&name)
                     .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;
@@ -1267,6 +1675,9 @@ impl NcpInstanceBase {
                 Ok(format!("Inserted into {name}"))
             }
             Command::PropRemove { name, value } => {
+                // Update local state first.
+                self.address_prop_remove(&name, &value).await;
+
                 use zbus::zvariant::Value;
                 let handler = crate::instance::property_handlers::lookup(&name)
                     .ok_or_else(|| DaemonError::Ncp(format!("unknown property: {name}")))?;

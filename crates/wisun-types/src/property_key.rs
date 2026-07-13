@@ -172,6 +172,8 @@ declare_property_keys![
     (PROP_THREAD_NETWORK_DATA, "Thread:NetworkData"),
     (PROP_THREAD_ACTIVE_DATASET, "Thread:ActiveDataset"),
     (PROP_THREAD_PENDING_DATASET, "Thread:PendingDataset"),
+    (PROP_THREAD_ON_MESH_PREFIXES, "Thread:OnMeshPrefixes"),
+    (PROP_THREAD_OFF_MESH_ROUTES, "Thread:OffMeshRoutes"),
     // --- Dataset (operational dataset, phase 3C) ---
     (PROP_DATASET_ACTIVE_TIMESTAMP, "Dataset:ActiveTimestamp"),
     (PROP_DATASET_PENDING_TIMESTAMP, "Dataset:PendingTimestamp"),
@@ -305,6 +307,9 @@ mod tests {
             "NumConnected",
             "ConnectedDevices",
             "IPv6:AllAddresses",
+            "IPv6:Routes",
+            "Thread:OnMeshPrefixes",
+            "Thread:OffMeshRoutes",
             "ExternalDHCPServerEnabled",
             "ExternalDHCPServerAddr",
             "ExternalAuthServerEnabled",

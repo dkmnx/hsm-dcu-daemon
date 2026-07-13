@@ -56,6 +56,15 @@ struct In6Rtmsg {
     rtmsg_ifindex: i32,
 }
 
+/// Linux `struct ipv6_mreq` (from `<netinet/in.h>`), used by
+/// `IPV6_JOIN_GROUP` / `IPV6_LEAVE_GROUP` for multicast membership.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Ipv6Mreq {
+    mreq6_addr: libc::in6_addr,
+    mreq6_ifindex: i32,
+}
+
 /// Copy an [`Ipv6Addr`] into a `libc::in6_addr`.
 fn to_in6_addr(addr: Ipv6Addr) -> libc::in6_addr {
     let octets = addr.octets();
@@ -335,6 +344,83 @@ fn ipv6_net_of(ifaddr: &InterfaceAddress) -> Option<Ipv6Net> {
         None => 128,
     };
     Ipv6Net::new(addr, prefix).ok()
+}
+
+/// Join an IPv6 multicast group on the interface (MLD `IPV6_JOIN_GROUP`).
+///
+/// Mirrors `netif_mgmt_join_ipv6_multicast_address` (`setsockopt` with
+/// `struct ipv6_mreq`). The netif-management socket is an AF_INET6 datagram
+/// socket, so it is valid for this setsockopt.
+#[cfg(target_os = "linux")]
+pub fn join_multicast_address(
+    fd: &impl AsRawFd,
+    name: &str,
+    addr: Ipv6Addr,
+) -> Result<(), TunError> {
+    let ifindex = interface_index(fd, name)?;
+    let mreq = Ipv6Mreq {
+        mreq6_addr: to_in6_addr(addr),
+        mreq6_ifindex: ifindex as i32,
+    };
+    // SAFETY: IPV6_JOIN_GROUP (=20) installs a multicast membership for mreq.
+    let ret = unsafe {
+        libc::setsockopt(
+            fd.as_raw_fd(),
+            libc::IPPROTO_IPV6,
+            20, // IPV6_JOIN_GROUP
+            &mreq as *const _ as *const libc::c_void,
+            std::mem::size_of::<Ipv6Mreq>() as libc::socklen_t,
+        )
+    };
+    if ret < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EALREADY) {
+            return Ok(());
+        }
+        return Err(TunError::Ioctl {
+            op: "IPV6_JOIN_GROUP",
+            source: err,
+        });
+    }
+    Ok(())
+}
+
+/// Leave an IPv6 multicast group on the interface (`IPV6_LEAVE_GROUP`).
+#[cfg(target_os = "linux")]
+pub fn leave_multicast_address(
+    fd: &impl AsRawFd,
+    name: &str,
+    addr: Ipv6Addr,
+) -> Result<(), TunError> {
+    let ifindex = interface_index(fd, name)?;
+    let mreq = Ipv6Mreq {
+        mreq6_addr: to_in6_addr(addr),
+        mreq6_ifindex: ifindex as i32,
+    };
+    // SAFETY: IPV6_LEAVE_GROUP (=21) drops a multicast membership for mreq.
+    let ret = unsafe {
+        libc::setsockopt(
+            fd.as_raw_fd(),
+            libc::IPPROTO_IPV6,
+            21, // IPV6_LEAVE_GROUP
+            &mreq as *const _ as *const libc::c_void,
+            std::mem::size_of::<Ipv6Mreq>() as libc::socklen_t,
+        )
+    };
+    if ret < 0 {
+        let err = std::io::Error::last_os_error();
+        if matches!(
+            err.raw_os_error(),
+            Some(libc::EALREADY) | Some(libc::EADDRNOTAVAIL)
+        ) {
+            return Ok(());
+        }
+        return Err(TunError::Ioctl {
+            op: "IPV6_LEAVE_GROUP",
+            source: err,
+        });
+    }
+    Ok(())
 }
 
 /// Compute the prefix length from a netmask address.

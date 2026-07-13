@@ -57,6 +57,24 @@ impl TunnelIPv6Interface {
         self.device.name()
     }
 
+    /// Clone this interface handle. Duplicates the existing kernel TUN fd
+    /// (via `try_clone_fd`) so both the original and the clone refer to the
+    /// same kernel device. Safe to use from a separate task than the original
+    /// (e.g. one task reads the TUN while another writes).
+    pub fn try_clone(&self) -> Result<Self, TunError> {
+        let netif_fd = ioctl::open_netif_socket()?;
+        let dup_fd = self.device.try_clone_fd()?;
+        let async_fd =
+            AsyncFd::new(dup_fd).map_err(|e| TunError::Open(std::io::Error::other(e)))?;
+        let device = TunDevice::from_fd_and_name(self.device.try_clone_fd()?, self.name());
+        Ok(Self {
+            device,
+            netif_fd,
+            async_fd,
+            mtu: self.mtu,
+        })
+    }
+
     /// The configured MTU.
     pub fn mtu(&self) -> u16 {
         self.mtu
@@ -91,6 +109,16 @@ impl TunnelIPv6Interface {
     /// Remove an IPv6 route.
     pub fn remove_route(&self, dest: Ipv6Net, metric: u32) -> Result<(), TunError> {
         ioctl::remove_ipv6_route(&self.netif_fd, self.name(), dest, metric)
+    }
+
+    /// Join an IPv6 multicast group on this interface (MLD).
+    pub fn join_multicast_address(&self, addr: Ipv6Addr) -> Result<(), TunError> {
+        ioctl::join_multicast_address(&self.netif_fd, self.name(), addr)
+    }
+
+    /// Leave an IPv6 multicast group on this interface (MLD).
+    pub fn leave_multicast_address(&self, addr: Ipv6Addr) -> Result<(), TunError> {
+        ioctl::leave_multicast_address(&self.netif_fd, self.name(), addr)
     }
 
     /// Returns `true` if the interface is administratively up.

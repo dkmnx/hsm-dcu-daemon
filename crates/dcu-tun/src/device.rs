@@ -113,6 +113,19 @@ impl TunDevice {
     pub fn close(self) {
         // OwnedFd closes on drop; nothing else to do.
     }
+
+    /// Build a `TunDevice` from an already-open fd (e.g. a cloned one) and
+    /// the interface name. Panics if `name` is longer than `IFNAMSIZ`.
+    ///
+    /// This avoids a second `open_tun_device()` + `ioctl(TUNSETIFF)` when
+    /// duplicating an existing TUN handle via `try_clone_fd()`.
+    pub fn from_fd_and_name(fd: OwnedFd, name: &str) -> Self {
+        assert!(name.len() < libc::IFNAMSIZ, "interface name too long");
+        TunDevice {
+            fd,
+            name: name.to_string(),
+        }
+    }
 }
 
 impl AsRawFd for TunDevice {

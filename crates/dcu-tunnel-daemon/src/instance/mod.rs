@@ -11,8 +11,10 @@ use tokio::sync::{RwLock, mpsc};
 use crate::DaemonError;
 use crate::config::Config;
 
+pub mod addresses;
 pub mod base;
 pub(crate) mod property_handlers;
+pub mod tun_bridge;
 pub use base::NcpInstanceBase;
 
 /// The public daemon instance, wrapping the base state machine.

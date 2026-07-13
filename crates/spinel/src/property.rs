@@ -132,6 +132,19 @@ pub const PROP_MESHCOP_JOINER_DISCERNER: u32 = 0x86;
 // MAC scan beacon (SPINEL_PROP_MAC__BEGIN + 3 = 0x33)
 pub const PROP_MAC_SCAN_BEACON: u32 = 0x33;
 
+// STREAM properties (SPINEL_PROP_STREAM__BEGIN = 0x70)
+pub const PROP_STREAM_DEBUG: u32 = 0x70;
+pub const PROP_STREAM_RAW: u32 = 0x71;
+pub const PROP_STREAM_NET: u32 = 0x72;
+pub const PROP_STREAM_NET_INSECURE: u32 = 0x73;
+
+// MAC raw stream enable (SPINEL_PROP_MAC__BEGIN + 7 = 0x30 + 7 = 0x37)
+pub const PROP_MAC_RAW_STREAM_ENABLED: u32 = 0x37;
+
+// IPv6 address/multicast tables (SPINEL_PROP_IPV6__BEGIN + 3 / +1)
+pub const PROP_IPV6_ADDRESS_TABLE: u32 = 0x63;
+pub const PROP_IPV6_MULTICAST_ADDRESS_TABLE: u32 = 0x61;
+
 // MSG buffer counters (SPINEL_PROP_CNTR__BEGIN + 400 = 0x6A4)
 pub const PROP_MSG_BUFFER_COUNTERS: u32 = 0x6A4;
 
