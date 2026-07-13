@@ -122,18 +122,18 @@ this doc + `DBUSIPCServer.cpp` alone.
 
 | Target | Drop-in today? | Verdict |
 | ------ | -------------- | ------- |
-| **wfanctl → dcuctl** | **Yes** (CLI surface) | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only. **Blocked at runtime until daemon fixes P0-1/P0-2.** |
+| **wfanctl → dcuctl** | **Yes** (CLI surface) | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only (see P1-9). **Runtime unblocked after P0-1/P0-2 closed** — now works against a `dcutund` on the system bus. |
 | **wfantund → dcutund** | **No** | Core Spinel/D-Bus/task stack exists and mock-e2e passes, but **production data path, bus wiring, and several C subsystems are missing or unapplied**. Not a silent install-time replacement. |
 
 ### Headline blockers for T1 field drop-in (P0)
 
-| ID | Gap | Evidence (re-verified 2026-07-13) |
-| -- | --- | -------------------------------- |
-| **P0-1** | **System D-Bus bus** | C: `DBUSIPCServer.cpp:68` `DBUS_BUS_SYSTEM`. Rust: `dcu-dbus/src/server.rs:53` `Connection::session()`. Clients: `dcuctl` + `ti-wisun-webapp/.../dbusCommands.js` use **system** bus. |
-| **P0-2** | **Base object `GetInterfaces`** | C: `DBUSIPCServer.cpp` ~286– registers base path method. Rust: only `object_server().at(iface_path)` (`server.rs:90`); no base object, no `GetInterfaces`. `dcuctl` calls it in `dbus_client.rs:28`. |
-| **P0-3** | **TUN data path not wired** | `dcu-tun` is a Cargo dep; only `DaemonError::Tun` references it. `start_pumps` opens serial only (`base.rs` ~843–884). No `STREAM_NET` / TUN bridge in daemon. C: `SPINEL_PROP_STREAM_NET` in `SpinelNCPInstance.cpp` ~6617+. |
-| **P0-4** | **IPv6 address / prefix / route manager** | No `UnicastAddress`/`on_mesh` state in `dcu-tunnel-daemon`. C: `NCPInstanceBase-Addresses.cpp` (~1332 LOC). |
-| **P0-5** | **NetworkRetain** | Only string `"Config:Daemon:NetworkRetainCommand"` in `property_key.rs`. No runtime. C: `NetworkRetain.cpp` (~215 LOC). |
+| ID | Gap | Evidence (re-verified 2026-07-13) | Status |
+| -- | --- | -------------------------------- | ------ |
+| **P0-1** | **System D-Bus bus** | C: `DBUSIPCServer.cpp:68` `DBUS_BUS_SYSTEM`. Rust: `dcu-dbus/src/server.rs` `Connection::system()` via `BusType::System` (default) + `DCU_DBUS_BUS` env override; `start_with_bus` added. **Closed** (a724f71) | DONE |
+| **P0-2** | **Base object `GetInterfaces`** | C: `DBUSIPCServer.cpp` ~286– registers base path method. Rust: `base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces` (`aas`) + `GetVersion` (`u`); per-iface `GetVersion` removed from `interface.rs`. `dcuctl` calls `GetVersion` on base proxy. **Closed** (a724f71) | DONE |
+| **P0-3** | **TUN data path not wired** | `dcu-tun` is a Cargo dep; only `DaemonError::Tun` references it. `start_pumps` opens serial only (`base.rs` ~843–884). No `STREAM_NET` / TUN bridge in daemon. C: `SPINEL_PROP_STREAM_NET` in `SpinelNCPInstance.cpp` ~6617+. | OPEN |
+| **P0-4** | **IPv6 address / prefix / route manager** | No `UnicastAddress`/`on_mesh` state in `dcu-tunnel-daemon`. C: `NCPInstanceBase-Addresses.cpp` (~1332 LOC). | OPEN |
+| **P0-5** | **NetworkRetain** | Only string `"Config:Daemon:NetworkRetainCommand"` in `property_key.rs`. No runtime. C: `NetworkRetain.cpp` (~215 LOC). | OPEN |
 
 ### Secondary gaps (P1) — T2 / ops completeness
 
@@ -648,6 +648,20 @@ in Rust (see **Logical port** above).
 Use **§4 Roadmap** as the implementation backlog. Update this file when a
 P0/P1 item is closed (status + commit hash), not when a crate merely
 exists on disk.
+
+---
+
+## 9. Implementation log (Milestone A — P0-1, P0-2, P1-9)
+
+| Date       | Item                                   | Commit     | What changed                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------- | -------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-07-13 | **P0-1** System bus                    | a724f71    | `dcu-dbus/src/server.rs`: added `BusType` (default `System`) + `start_with_bus`; `main.rs` reads `DCU_DBUS_BUS=session` for CI. Production now claims the well-known name on the **system** bus.                                                                                                                                                                                                          |
+| 2026-07-13 | **P0-2** Base object + `GetInterfaces` | a724f71    | New `dcu-dbus/src/base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces() -> aas` (returns `[iface_name, unique_bus_name]`) and `GetVersion() -> u` (returns `2`). Removed `GetVersion` from the per-interface `WpanInterface` (C serves it from the base object). `dcuctl` now calls `GetVersion` on the base proxy and compares the numeric protocol version. |
+| 2026-07-13 | **P1-9** Install/packaging names       | a724f71    | New `packaging/install.sh` symlinks `/usr/local/sbin/wfantund -> dcutund` and `/usr/local/bin/wfanctl -> dcuctl`, installs unchanged `wpantund.conf`, and (when systemd present) `dcu-daemon.service` with `DCU_DBUS_BUS=system`. README documents the drop-in install.                                                                                                                                   |
+
+**Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after Milestone A.
+
+**Still open after A:** P0-3 (TUN data path), P0-4 (address manager), P0-5 (NetworkRetain), and all P1 items (see §4 roadmap + `plans/rust-porting-gap-implementation.md`).
 
 ---
 

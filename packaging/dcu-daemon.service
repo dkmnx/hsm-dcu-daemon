@@ -1,0 +1,18 @@
+[Unit]
+Description=HSM DCU Wi-SUN FAN Border Router Daemon (Rust port)
+Documentation=https://github.com/texasinstruments/wfantund
+After=dbus.service
+Requires=dbus.service
+
+[Service]
+Type=simple
+# Production binary is installed as /usr/sbin/wfantund (symlink to dcutund).
+ExecStart=/usr/sbin/wfantund -c /etc/wpantund.conf
+# The daemon claims com.nestlabs.WPANTunnelDriver on the **system** bus.
+# Allow tests/CI to override the bus via DCU_DBUS_BUS=session.
+Environment=DCU_DBUS_BUS=system
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

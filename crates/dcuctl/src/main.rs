@@ -39,10 +39,16 @@ async fn main() {
     };
 
     if !cli.ignore_mismatch {
+        // The daemon's `GetVersion` returns the **protocol** version
+        // (a u32, currently 2 — WPANTUND_DBUS_VERSION), not a semver
+        // string, so it cannot equal the CLI crate version. We only warn
+        // if the daemon reports an unexpected protocol number.
         if let Ok(version) = client.get_version().await {
-            let our_version = env!("CARGO_PKG_VERSION");
-            if version != our_version {
-                eprintln!("WARNING: Version mismatch: dcuctl={our_version}, daemon={version}");
+            const EXPECTED_PROTOCOL: u32 = 2;
+            if version != EXPECTED_PROTOCOL {
+                eprintln!(
+                    "WARNING: Protocol version mismatch: dcuctl expects {EXPECTED_PROTOCOL}, daemon reports {version}"
+                );
             }
         }
     }

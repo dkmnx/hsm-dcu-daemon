@@ -142,13 +142,20 @@ impl DbusClient {
         Ok(if ret == 6 { 0 } else { ret })
     }
 
-    pub async fn get_version(&self) -> Result<String, CommandError> {
-        let p = self.iface_proxy().await?;
+    pub async fn get_version(&self) -> Result<u32, CommandError> {
+        let p = self.base_proxy().await?;
         let msg = p
             .call_method("GetVersion", &())
             .await
             .map_err(to_dbus_err)?;
         msg.body().deserialize().map_err(to_dbus_err)
+    }
+
+    /// Build a proxy to the **base** object at
+    /// `/com/nestlabs/WPANTunnelDriver` (serves `GetInterfaces`,
+    /// `GetVersion`). Used by `get_interfaces` and `get_version`.
+    async fn base_proxy(&self) -> Result<Proxy<'_>, CommandError> {
+        build_base_proxy(&self.conn).await
     }
 }
 

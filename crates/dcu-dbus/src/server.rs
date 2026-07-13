@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use zbus::Connection;
 
+use crate::base_interface;
 use crate::commands::Command;
 use crate::interface;
 use crate::signals;
@@ -24,6 +25,18 @@ use crate::types::{DaemonState, DbusError, EnergyScanResultEntry, ScanBeacon, Va
 pub const WPANTUND_DBUS_NAME: &str = "com.nestlabs.WPANTunnelDriver";
 pub const WPANTUND_DBUS_INTERFACE: &str = "com.nestlabs.WPANTunnelDriver";
 pub const WPANTUND_BASE_OBJECT_PATH: &str = "/com/nestlabs/WPANTunnelDriver";
+
+/// Which D-Bus bus the server connects to.
+///
+/// Production `dcutund` must claim `com.nestlabs.WPANTunnelDriver` on the
+/// **system** bus (the C daemon uses `DBUS_BUS_SYSTEM`). `Session` is
+/// reserved for tests/CI (override via `DCU_DBUS_BUS=session`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BusType {
+    #[default]
+    System,
+    Session,
+}
 
 /// The D-Bus server handle.
 #[derive(Debug)]
@@ -43,14 +56,28 @@ impl DbusServer {
         format!("{WPANTUND_BASE_OBJECT_PATH}/{iface_name}")
     }
 
-    /// Start the D-Bus server on a fresh session bus connection and claim
-    /// the well-known name.
+    /// Start the D-Bus server on the **system** bus by default (production
+    /// parity with the C daemon) and claim the well-known name. Tests/CI
+    /// may pass `bus: BusType::Session` or set `DCU_DBUS_BUS=session`.
     pub async fn start(
         iface_name: String,
         state: Arc<RwLock<DaemonState>>,
         command_tx: mpsc::Sender<Command>,
     ) -> Result<Self, DbusError> {
-        let conn = Connection::session().await?;
+        Self::start_with_bus(iface_name, state, command_tx, BusType::default()).await
+    }
+
+    /// Like [`start`] but with an explicit bus type (used by tests via env).
+    pub async fn start_with_bus(
+        iface_name: String,
+        state: Arc<RwLock<DaemonState>>,
+        command_tx: mpsc::Sender<Command>,
+        bus: BusType,
+    ) -> Result<Self, DbusError> {
+        let conn = match bus {
+            BusType::Session => Connection::session().await?,
+            BusType::System => Connection::system().await?,
+        };
         Self::start_on(
             conn,
             iface_name,
@@ -88,6 +115,16 @@ impl DbusServer {
         let iface_path = Self::iface_object_path(&iface_name);
         let iface = interface::new(iface_name.clone(), state, command_tx);
         conn.object_server().at(iface_path.clone(), iface).await?;
+
+        // Register the **base** object at WPANTUND_BASE_OBJECT_PATH
+        // (C: DBUSIPCServer.cpp:113). It serves GetInterfaces +
+        // GetVersion, distinct from the per-interface object above.
+        let base = base_interface::BaseInterface {
+            iface_name: iface_name.clone(),
+        };
+        conn.object_server()
+            .at(WPANTUND_BASE_OBJECT_PATH.to_string(), base)
+            .await?;
 
         // Announce the new interface on the base object path.
         signals::emit_interface_added(&conn, &iface_name).await?;

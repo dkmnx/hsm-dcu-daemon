@@ -63,6 +63,25 @@ in Ubuntu Linux OS.
 Refer to Install_AM64x_sk.md for cross-compiling and installing `wfantund` and `dcuctl` 
 for TI AM64x SK (https://www.ti.com/tool/SK-AM64).
 
+### Rust port (drop-in names) ###
+
+The Rust port builds the binaries `dcutund` (daemon) and `dcuctl`
+(CLI). Production tooling, the TI webapp, and legacy scripts expect the
+upstream names `wfantund` and `wfanctl`. To install a **silent
+drop-in replacement**, use the packaging helper:
+
+```bash
+cargo build --release
+sudo ./packaging/install.sh /usr/local
+```
+
+This symlinks `/usr/local/sbin/wfantund -> dcutund` and
+`/usr/local/bin/wfanctl -> dcuctl`, installs the unchanged
+`wpantund.conf`, and (when systemd is present) the
+`dcu-daemon.service` unit. The daemon claims
+`com.nestlabs.WPANTunnelDriver` on the **system** bus by default;
+set `DCU_DBUS_BUS=session` to run against the session bus for tests.
+
 ## Usage Overview ##
 
 The behavior of `wfantund` is determined by its configuration

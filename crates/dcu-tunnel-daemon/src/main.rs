@@ -10,6 +10,7 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use dcu_dbus::server::BusType;
 use dcu_dbus::{DaemonState, DbusServer};
 use dcu_tunnel_daemon::NcpInstance;
 use dcu_tunnel_daemon::config::Config;
@@ -51,10 +52,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command_tx = instance.command_sender();
 
     // Start the D-Bus server (claims com.nestlabs.WPANTunnelDriver).
-    let dbus_server = DbusServer::start(
+    // Production uses the system bus; tests pass DCU_DBUS_BUS=session.
+    let bus = match std::env::var("DCU_DBUS_BUS")
+        .map(|v| v.to_lowercase())
+        .as_deref()
+    {
+        Ok("session") => BusType::Session,
+        _ => BusType::System,
+    };
+    let dbus_server = DbusServer::start_with_bus(
         instance.interface_name().to_string(),
         daemon_state,
         command_tx,
+        bus,
     )
     .await?;
 

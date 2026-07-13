@@ -30,12 +30,6 @@ pub struct WpanInterface {
 
 #[interface(name = "com.nestlabs.WPANTunnelDriver")]
 impl WpanInterface {
-    /// GetVersion: return the daemon version string.
-    #[zbus(name = "GetVersion")]
-    async fn get_version(&self) -> String {
-        env!("CARGO_PKG_VERSION").to_string()
-    }
-
     /// PropGet: read a property by its key string.
     ///
     /// Matches C `interface_prop_get_handler` (DBusIPCAPI.cpp:890). Values

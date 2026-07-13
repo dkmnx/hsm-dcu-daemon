@@ -11,6 +11,7 @@
 //! a `WpanInterface` that actually holds the command channel, and a single
 //! `emit_prop_changed` emitter (the spec's duplicate was removed).
 
+pub mod base_interface;
 pub mod commands;
 pub mod interface;
 pub mod properties;
