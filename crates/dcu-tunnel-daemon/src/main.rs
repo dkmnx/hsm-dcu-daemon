@@ -30,6 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let config = Config::load(&args.config_path)?;
 
+    // Apply daemon lifecycle (PID file, chroot, priv-drop) after all
+    // privileged setup completes. We need the config after it's moved
+    // into NcpInstance, so clone the lifecycle-relevant parts now.
+    let lifecycle_config = config.clone();
+
     // Graceful stop: SIGINT or SIGTERM -> cancel.
     let cancel = CancellationToken::new();
 
@@ -70,6 +75,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start I/O pumps (NCP <-> driver <-> TUN).
     instance.start_pumps().await?;
+
+    // Apply lifecycle: PID file → chroot → priv-drop.
+    // Must happen after serial/TUN/D-Bus are open (privileged setup).
+    let _pid_guard = dcu_tunnel_daemon::lifecycle::apply_lifecycle(&lifecycle_config)?;
 
     // Main event loop.
     instance.run(cancel.clone()).await;

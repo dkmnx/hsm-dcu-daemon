@@ -283,6 +283,9 @@ pub struct NcpInstanceBase {
     #[allow(dead_code)]
     backoff: crate::tasks::backoff::BackoffManager,
 
+    /// NetworkRetain: saves/recalls/erases network info on NCP state transitions.
+    network_retain: crate::network_retain::NetworkRetain,
+
     /// Notified when `driver_state` changes (used by `wait_for_driver_ready`).
     driver_state_changed: Arc<Notify>,
 
@@ -315,6 +318,10 @@ pub struct NcpInstanceBase {
 
     /// Bridge task JoinHandles for clean stop (P1-3 fix).
     bridge_tasks: Vec<tokio::task::JoinHandle<()>>,
+
+    /// Pcap capture manager (P1-2). Active capture FDs receive
+    /// Spinel frame data in pcap format.
+    pcap: crate::pcap::PcapManager,
 }
 
 impl NcpInstanceBase {
@@ -328,6 +335,8 @@ impl NcpInstanceBase {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
         let (stream_net_tx, _stream_net_rx) = mpsc::unbounded_channel();
         let (address_frame_tx, address_frame_rx) = mpsc::unbounded_channel();
+        let network_retain =
+            crate::network_retain::NetworkRetain::new(config.daemon_network_retain_command.clone());
 
         Ok(Self {
             ncp_state: Arc::new(RwLock::new(NcpState::Uninitialized)),
@@ -347,6 +356,7 @@ impl NcpInstanceBase {
             pending_dataset: Arc::new(RwLock::new(crate::dataset::OperationalDataset::default())),
             shared_state,
             backoff: crate::tasks::backoff::BackoffManager::new(),
+            network_retain,
             driver_state_changed: Arc::new(Notify::new()),
             config,
             tun: None,
@@ -357,6 +367,7 @@ impl NcpInstanceBase {
                 crate::instance::addresses::AddressManager::new(),
             ),
             bridge_tasks: Vec::new(),
+            pcap: crate::pcap::PcapManager::new(),
         })
     }
 
@@ -394,6 +405,7 @@ impl NcpInstanceBase {
         let active_dataset = self.active_dataset.clone();
         let pending_dataset = self.pending_dataset.clone();
         let shared_state = self.shared_state.clone();
+        let pcap = self.pcap.clone();
         let frame_rx = std::mem::replace(&mut self.frame_rx, mpsc::unbounded_channel().1);
         let frame_cancel = cancel.clone();
         self.frame_task = Some(tokio::spawn(async move {
@@ -420,6 +432,11 @@ impl NcpInstanceBase {
                                 }
                                 if !response_table.deliver(&frame) {
                                     Self::dispatch_unsolicited_static(&frame, &scan_collector, &stream_net_tx).await;
+                                }
+                                // Pcap: push frame payload to active capture FDs.
+                                // is_enabled is O(1) atomic check (no async lock).
+                                if pcap.is_enabled() {
+                                    pcap.push_packet(frame.payload.to_vec());
                                 }
                             }
                             None => break,
@@ -1362,6 +1379,29 @@ impl NcpInstanceBase {
             }
         }
 
+        // NetworkRetain: save/recall/erase network info on state transitions.
+        // Await the retain command to ensure it completes before AutoAssociate
+        // (C blocks on recall before issuing Attach).
+        if let Some(handle) = self.network_retain.handle_state_change(old, state) {
+            let _ = handle.await;
+        }
+
+        // AutoAssociateAfterReset: when the NCP transitions from initializing
+        // to Offline and the flag is set, automatically trigger Attach.
+        // Matches C SpinelNCPInstance-Protothreads.cpp:645-651.
+        if self.config.daemon_auto_associate_after_reset
+            && old.is_initializing()
+            && state == NcpState::Offline
+        {
+            tracing::info!("AutoAssociateAfterReset: sending Attach after reset");
+            if let Err(e) = self
+                .send_prop_set(spinel::property::PROP_NET_STACK_UP, vec![1u8])
+                .await
+            {
+                tracing::warn!("AutoAssociateAfterReset: Attach failed: {e}");
+            }
+        }
+
         self.state_changed.notify_waiters();
     }
 
@@ -1469,6 +1509,10 @@ impl NcpInstanceBase {
                 // Explicit operator reset — no backoff delay or count.
                 // BackoffManager tracks unexpected/NCP-driven resets only.
                 self.set_ncp_state(NcpState::Uninitialized).await;
+                // Hard-reset GPIO if configured (must happen before CMD_RESET).
+                if let Err(e) = crate::ncp_gpio::hard_reset(&self.config) {
+                    tracing::warn!("Hard reset GPIO failed: {e}");
+                }
                 self.send_command(spinel::command::CMD_RESET, Vec::new())
                     .await?;
                 self.wait_for_state(|s| !s.is_initializing(), std::time::Duration::from_secs(5))
@@ -1695,6 +1739,82 @@ impl NcpInstanceBase {
                 };
                 self.send_prop_remove(handler.prop_id, wire_bytes).await?;
                 Ok(format!("Removed from {name}"))
+            }
+            // --- P1-3: 13 missing D-Bus methods ---
+            Command::PcapToFd { fd } => {
+                self.pcap.insert_fd(fd).await.map_err(|e| {
+                    tracing::warn!("PcapToFd: {e}");
+                    DaemonError::Ncp(e)
+                })?;
+                Ok("PcapToFd: capture started".into())
+            }
+            Command::PcapTerminate => {
+                self.pcap.terminate().await;
+                Ok("PcapTerminate: capture stopped".into())
+            }
+            Command::JoinerAttach { params: _ } => {
+                // C SpinelNCPTaskJoinerAttach: plain attach (PROP_NET_STACK_UP=true),
+                // no PSKd/commissioning. Same as Command::Attach.
+                self.wait_for_state(|s| !s.is_initializing(), std::time::Duration::from_secs(5))
+                    .await?;
+                self.send_prop_set(spinel::property::PROP_NET_STACK_UP, vec![1u8])
+                    .await?;
+                Ok("JoinerAttach: attached".into())
+            }
+            Command::JoinerStart { params } => {
+                crate::tasks::joiner_commission::joiner_commission(self, true, &params).await?;
+                Ok("JoinerStart started".into())
+            }
+            Command::JoinerStop => {
+                crate::tasks::joiner_commission::joiner_commission(
+                    self,
+                    false,
+                    &Default::default(),
+                )
+                .await?;
+                Ok("JoinerStop".into())
+            }
+            Command::JoinerCommissioning { params } => {
+                crate::tasks::joiner_commission::joiner_commission(self, true, &params).await?;
+                Ok("JoinerCommissioning started".into())
+            }
+            Command::JoinerAdd { params: _ } => {
+                tracing::info!("JoinerAdd: commissioner joiner-add not yet implemented");
+                Err(DaemonError::Ncp("JoinerAdd not yet implemented".into()))
+            }
+            Command::JoinerRemove { params: _ } => {
+                tracing::info!("JoinerRemove: commissioner joiner-remove not yet implemented");
+                Err(DaemonError::Ncp("JoinerRemove not yet implemented".into()))
+            }
+            Command::LinkMetricsQuery { params: _ } => {
+                tracing::info!("LinkMetricsQuery: link metrics not yet implemented");
+                Err(DaemonError::Ncp(
+                    "LinkMetricsQuery not yet implemented".into(),
+                ))
+            }
+            Command::LinkMetricsProbe { params: _ } => {
+                tracing::info!("LinkMetricsProbe: link metrics not yet implemented");
+                Err(DaemonError::Ncp(
+                    "LinkMetricsProbe not yet implemented".into(),
+                ))
+            }
+            Command::LinkMetricsMgmtForward { params: _ } => {
+                tracing::info!("LinkMetricsMgmtForward: link metrics not yet implemented");
+                Err(DaemonError::Ncp(
+                    "LinkMetricsMgmtForward not yet implemented".into(),
+                ))
+            }
+            Command::LinkMetricsMgmtEnhAck { params: _ } => {
+                tracing::info!("LinkMetricsMgmtEnhAck: link metrics not yet implemented");
+                Err(DaemonError::Ncp(
+                    "LinkMetricsMgmtEnhAck not yet implemented".into(),
+                ))
+            }
+            Command::EnergyScanQuery { params: _ } => {
+                tracing::info!("EnergyScanQuery: energy scan query not yet implemented");
+                Err(DaemonError::Ncp(
+                    "EnergyScanQuery not yet implemented".into(),
+                ))
             }
         }
     }

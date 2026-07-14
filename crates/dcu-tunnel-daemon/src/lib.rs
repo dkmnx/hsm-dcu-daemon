@@ -11,6 +11,10 @@ pub mod dispatcher;
 pub mod error;
 pub mod firmware_upgrade;
 pub mod instance;
+pub mod lifecycle;
+pub mod ncp_gpio;
+pub mod network_retain;
+pub mod pcap;
 pub mod tasks;
 
 pub use config::Config;

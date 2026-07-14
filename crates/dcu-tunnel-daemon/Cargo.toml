@@ -22,6 +22,7 @@ shell-words = "1"
 zbus = { workspace = true }
 hex = { workspace = true }
 ipnet = { workspace = true }
+libc = "0.2"
 
 [features]
 test-util = []
@@ -36,6 +37,7 @@ required-features = ["test-util"]
 
 [dev-dependencies]
 dcu-mock = { path = "../dcu-mock" }
+tempfile = "3"
 
 [lints]
 workspace = true

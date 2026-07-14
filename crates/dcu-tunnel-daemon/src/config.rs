@@ -42,6 +42,9 @@ pub struct Config {
     // Firmware
     pub firmware_check_command: Option<String>,
     pub firmware_upgrade_command: Option<String>,
+
+    // NetworkRetain
+    pub daemon_network_retain_command: Option<String>,
 }
 
 impl Default for Config {
@@ -67,6 +70,7 @@ impl Default for Config {
             ipv6_wfantund_global_address: None,
             firmware_check_command: None,
             firmware_upgrade_command: None,
+            daemon_network_retain_command: None,
         }
     }
 }
@@ -172,6 +176,9 @@ impl Config {
         }
         if let Some(v) = map.get("Config:NCP:FirmwareUpgradeCommand") {
             cfg.firmware_upgrade_command = Some(v.clone());
+        }
+        if let Some(v) = map.get("Config:Daemon:NetworkRetainCommand") {
+            cfg.daemon_network_retain_command = Some(v.clone());
         }
 
         Ok(cfg)
