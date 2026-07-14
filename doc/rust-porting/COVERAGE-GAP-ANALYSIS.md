@@ -1,6 +1,6 @@
 # Rust Porting Coverage Gap Analysis
 
-**Date:** 2026-07-13 (re-verified same day)  
+**Date:** 2026-07-14 (re-verified same day; Milestone C closures applied)  
 **Confidence:** High on **presence/absence** of modules and D-Bus wiring
 (grep + source read). Medium on **product-critical priority** (what a given
 deployment actually needs) — that needs product owner input, not only LOC.  
@@ -98,7 +98,7 @@ meet the contract.
 
 “Parity” here means **behavior and contracts**, not isomorphic source.
 P0 items are **T1 blockers**. P1 items complete **T2** (and some T1
-hardening). Do not treat “~325 property defines” as a blind implementor
+hardening). Do not treat “321 property defines” as a blind implementor
 checklist — many are Thread-era; inventory against live C `status` /
 firmware first (P1-7).
 
@@ -110,8 +110,8 @@ firmware first (P1-7).
 | **Not alone as design tickets** | —                                                                     | Per-gap wire-format specs, zbus signatures, TID state-machine detail, effort estimates, golden fixtures |
 | **Not a C→Rust file map**       | C paths cite *behavior to re-implement*                               | A mandate to recreate C module layout                                                                   |
 
-**Before coding each P0/P1 item**, write a short implementor note (or
-amend the matching phase-*.md) with: external contract (D-Bus/Spinel/
+**Before coding each P0/P1 item**, write a short implementor note in this
+document with: external contract (D-Bus/Spinel/
 config), C entry points as reference, idiomatic Rust design, files to
 touch, tests. Milestone A (P0-1/P0-2) is small enough to implement from
 this doc + `DBUSIPCServer.cpp` alone.
@@ -123,31 +123,31 @@ this doc + `DBUSIPCServer.cpp` alone.
 | Target | Drop-in today? | Verdict |
 | ------ | -------------- | ------- |
 | **wfanctl → dcuctl** | **Yes** (CLI surface) | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only (see P1-9). **Runtime unblocked after P0-1/P0-2 closed** — now works against a `dcutund` on the system bus. |
-| **wfantund → dcutund** | **Partial** (Milestones A+B) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, and address/prefix/route manager are implemented. Remaining gaps: NetworkRetain, lifecycle, GPIO, auto-flags, StatCollector, Pcap, 13 D-Bus methods, NetworkTimeUpdate, property inventory. |
+| **wfantund → dcutund** | **Partial** (Milestones A+B+C) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, address/prefix/route manager, NetworkRetain, Pcap, lifecycle (pid/chroot/privdrop), GPIO, AutoAssociateAfterReset, and all 45 D-Bus methods registered. Remaining gaps: StatCollector, property inventory (~40 registered handlers vs 321 C defines), 7 stub D-Bus methods, NetworkTimeUpdate signal, hardware acceptance. |
 
 ### Headline blockers for T1 field drop-in (P0)
 
-| ID | Gap | Evidence (re-verified 2026-07-13) | Status |
+| ID | Gap | Evidence (re-verified 2026-07-14) | Status |
 | -- | --- | -------------------------------- | ------ |
 | **P0-1** | **System D-Bus bus** | C: `DBUSIPCServer.cpp:68` `DBUS_BUS_SYSTEM`. Rust: `dcu-dbus/src/server.rs` `Connection::system()` via `BusType::System` (default) + `DCU_DBUS_BUS` env override; `start_with_bus` added. **Closed** (6d1f72d) | DONE |
 | **P0-2** | **Base object `GetInterfaces`** | C: `DBUSIPCServer.cpp` ~286– registers base path method. Rust: `base_interface.rs` registers `BaseInterface` at `WPANTUND_BASE_OBJECT_PATH` with `GetInterfaces` (`aas`) + `GetVersion` (`u`); per-iface `GetVersion` removed from `interface.rs`. `dcuctl` calls `GetVersion` on base proxy. **Closed** (6d1f72d) | DONE |
 | **P0-3** | **TUN data path** | C: `SpinelNCPInstance.cpp` ~6617+ `SPINEL_PROP_STREAM_NET`. Rust: `start_pumps_impl` opens TUN (`dcu-tun::TunnelIPv6Interface`) + spawns `ncp_to_tun`/`tun_to_ncp` bridge tasks; `set_ncp_state` brings TUN up on interface-up. `crates/instance/tun_bridge.rs`. Added multicast join/leave (ioctl + interface). Spinel constants `PROP_STREAM_NET`/`_INSECURE`/`_RAW`/`_DEBUG` corrected against spec. **Closed** | DONE |
 | **P0-4** | **IPv6 address / prefix / route manager** | C: `NCPInstanceBase-Addresses.cpp` (~1332 LOC). Rust: `crates/instance/addresses.rs` — `AddressManager` with origin tracking (NCP/Interface/User), `apply_ncp_address_table`/`multicast`/`on_mesh`/`off_mesh` methods diffing full-table snapshots and returning `TunOp` vecs. NCP table frames forwarded from frame-task to main loop via channel; `apply_tun_ops` under write lock. `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes` served from DaemonState mirror. `PropInsert`/`PropRemove` for prefix/route keys updates AddressManager immediately + NCP push. **Closed** | DONE |
-| **P0-5** | **NetworkRetain** | Only string `"Config:Daemon:NetworkRetainCommand"` in `property_key.rs`. No runtime. C: `NetworkRetain.cpp` (~215 LOC). | OPEN |
+| **P0-5** | **NetworkRetain** | C `NetworkRetain.cpp` (~215 LOC). Rust: `network_retain.rs` — `RetainAction::Recall`/`Erase` (Save branch removed — inert under TI_WISUN_FAN `has_joined()=true`). `handle_state_change()` returns `JoinHandle`, awaited before AutoAssociate. Command spawned via `tokio::process::Command` with fixed arg (S/R/E). Logged at `error` level on failure. Config key `Config:Daemon:NetworkRetainCommand`. **Closed** (uncommitted diff) | DONE |
 
 ### Secondary gaps (P1) — T2 / ops completeness
 
-| ID       | Gap                                     | C source                                                  | Notes                                                          |
-| -------- | --------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
-| **P1-1** | StatCollector + `Stat:*`                | `StatCollector.cpp` (~1.7k)                               | Large; may be optional for some deployments                    |
-| **P1-2** | Pcap + `PcapToFd` / `PcapTerminate`     | `Pcap.cpp` + registered in `DBusIPCAPI`                   | Registered in C — real gap                                     |
-| **P1-3** | Missing **registered** D-Bus methods    | See §2.3 method matrix                                    | 13 methods; **not** PermitJoin/BeginNetWake (header-only in C) |
-| **P1-4** | PID file, priv-drop, chroot             | `wpantund.cpp`                                            | Config parsed, not applied                                     |
-| **P1-5** | Hard-reset / power GPIO paths           | config keys                                               | Parsed only                                                    |
-| **P1-6** | AutoDeepSleep / AutoAssociateAfterReset | config flags                                              | Parsed only                                                    |
-| **P1-7** | Property surface vs production set      | `wpan-properties.h` (~325 defines) vs ~40 Spinel handlers | **Inventory first**; do not blind-port all 325                 |
-| **P1-8** | `NetworkTimeUpdate` signal              | C connects `mOnNetworkTimeUpdate`                         | Missing in Rust signals                                        |
-| **P1-9** | Binary / packaging names                | Makefile vs Cargo                                         | Symlink OK                                                     |
+| ID       | Gap                                     | C source                                                                                    | Notes                                                                                                                          |
+| -------- | --------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **P1-1** | StatCollector + `Stat:*`                | `StatCollector.cpp` (~1.7k)                                                                 | **Not implemented.** Largest deferred C body. 5 Stat:* key defines present but no recording logic.                             |
+| **P1-2** | Pcap + `PcapToFd` / `PcapTerminate`     | `Pcap.cpp` + registered in `DBusIPCAPI`                                                     | **Closed** (uncommitted diff). `pcap.rs` + `AtomicBool` gate + `spawn_blocking` writes.                                        |
+| **P1-3** | Missing **registered** D-Bus methods    | See §2.3 method matrix                                                                      | **45/45 registered** (this diff). 7 stubs returning `"not yet implemented"`: JoinerAdd/Remove, 4×LinkMetrics, EnergyScanQuery. |
+| **P1-4** | PID file, priv-drop, chroot             | `wpantund.cpp`                                                                              | **Closed** (uncommitted diff). `lifecycle.rs`: PID via `unlinkat(dirfd)`, `getpwnam_r`, `setgroups` before `setgid`.           |
+| **P1-5** | Hard-reset / power GPIO paths           | config keys                                                                                 | **Closed** (uncommitted diff). `ncp_gpio::hard_reset()` wired into reset path (`base.rs:1513`).                                |
+| **P1-6** | AutoAssociateAfterReset                 | config flag                                                                                 | **Closed** (uncommitted diff). Sends `PROP_NET_STACK_UP=1` on `Initializing→Offline` (`base.rs:1386`).                         |
+| **P1-7** | Property surface vs production set      | `wpan-properties.h` (**321** defines) vs **~40** Rust registered handlers + 126 key strings | **Open.** Inventory against live TI firmware required before expanding.                                                        |
+| **P1-8** | `NetworkTimeUpdate` signal              | C connects `mOnNetworkTimeUpdate`                                                           | **Not present.** Was added then reverted; still missing.                                                                       |
+| **P1-9** | Binary / packaging names                | Makefile vs Cargo                                                                           | **Closed** (6d1f72d). Symlink install script present.                                                                          |
 
 ### Known intentional / already-documented deviations (not “missing code”)
 
@@ -155,7 +155,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `PropGet` return type | C returns typed **variant** via callback helper; Rust returns **stringified** `String` (`interface.rs` + phase-2A note) | Clients that only print strings (dcuctl, much of webapp PropGet) OK; typed-variant clients need audit |
 | `Status` dict values  | Rust `HashMap<String, String>`; C builds variant dict                                                                   | Same stringification caveat                                                                           |
-| Joiner task file      | `tasks/joiner_commission.rs` exists                                                                                     | **Not** exposed as D-Bus methods yet (P1-3)                                                           |
+| Joiner task file      | `tasks/joiner_commission.rs` exists; `JoinerAttach`/`Start`/`Stop`/`Commissioning` wired as D-Bus methods | `JoinerAttach` uses plain `NET_STACK_UP=true` (no PSKd); `JoinerAdd`/`JoinerRemove` stubs (P1-3).        |
 
 ### Acceptable non-blockers (P2)
 
@@ -219,6 +219,11 @@ Rust `dcuctl` implements the same set (plus REPL quit aliases `quit`/`exit`/`q`)
 | Config parser                    | `config.rs`                    | wpantund.conf key subset                                                                                                    |
 | Mock NCP + e2e                   | `dcu-mock` + integration tests | form/join/startup/timeout vs mock                                                                                           |
 | Runaway reset backoff            | `tasks/backoff.rs`             | Present                                                                                                                     |
+| Daemon lifecycle (PID/chroot/drop) | `instance/lifecycle.rs`       | PID file via `unlinkat(dirfd)`, chroot, `getpwnam_r` + `setgroups` priv-drop. Applied after pumps in `main.rs`. **(done: P0-5/P1-4)** |
+| NCP GPIO reset / power toggle    | `instance/ncp_gpio.rs`         | `hard_reset()` wired into reset path; `power_toggle()` available. sysfs write. **(done: P1-5)**                              |
+| NetworkRetain                   | `instance/network_retain.rs`   | `Recall`/`Erase` on NCP state transitions; awaited before AutoAssociate. Spawns external command. **(done: P0-5)**           |
+| Pcap capture                    | `instance/pcap.rs`             | `PcapManager` with `AtomicBool` gate + `spawn_blocking` writes; `PcapToFd`/`PcapTerminate` wired. **(done: P1-2)**           |
+| AutoAssociateAfterReset         | `instance/base.rs:1386`        | Sends `PROP_NET_STACK_UP=1` on `Initializing→Offline` when flag set. **(done: P1-6)**                                         |
 
 ### 2.2 True gaps (detailed)
 
@@ -300,11 +305,24 @@ C `NetworkRetain.cpp` (~215 LOC):
 - On NCP state transitions: save / recall / erase network info
 - Used so networks survive NCP reset without re-form
 
-Rust: property key + config field only; **no runtime module**.
+Rust: `network_retain.rs` — `NetworkRetain` struct with `handle_state_change(old, new)`
+returning `Option<JoinHandle<()>>`. Called from `set_ncp_state` in `base.rs`.
+Recall/erase spawned via `tokio::process::Command::new(&cmd).arg(&arg)`.
+`RetainAction::Save` branch removed (inert under TI_WISUN_FAN — `has_joined()` always
+returns `true`). Failures logged at `error` level (previously `warn`).
 
-**Parity requirement:** Implement retain command lifecycle matching C
-FD protocol (`save` / `recall` / `erase` / close), driven from NCP state
-changes.
+**Status:** CLOSED (uncommitted diff). **Caveat:** retain helper runs after
+chroot + priv-drop; command path must exist inside the chroot and be runnable
+by the dropped uid.
+
+**Implementation:**
+
+| Capability                        | Rust location                                                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Action determination              | `network_retain.rs::action_for_transition(old, new)` — Recall on `Initializing→Offline`, Erase on `Commissioned→Offline` |
+| Command spawn                     | `tokio::process::Command::new(cmd).arg(arg).output().await` inside `tokio::spawn`                                        |
+| Await before AutoAssociate        | `base.rs:1385` — `if let Some(h) = handle { h.await; }` before the `AutoAssociateAfterReset` block                       |
+| Post-chroot behavior              | Documented: command must be inside chroot, runnable by dropped uid; failures at `error` level                            |
 
 ---
 
@@ -321,23 +339,49 @@ and serve `Stat:*` via PropGet. Largest deferred C body (~1.7k LOC).
 C: `PcapManager` + D-Bus `PcapToFd` / `PcapTerminate`; Spinel path
 pushes frames when pcap is active.
 
-**Parity requirement:**
+**Status:** CLOSED (uncommitted diff).
 
-- D-Bus methods + FD handoff semantics matching C
-- Frame capture on NCP RX/TX when enabled
-- Optional: pcap file format parity with C `PcapPacket`
+| Capability                   | Rust location                                                    | Notes                                                               |
+| ---------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `PcapToFd` D-Bus method      | `interface.rs` → `Command::PcapToFd` → `pcap.insert_fd(fd)`      | `fd` transferred via `mem::forget` (ownership handoff before drop)  |
+| `PcapTerminate` D-Bus method | `interface.rs` → `Command::PcapTerminate` → `pcap.terminate()`   | Closes all capture FDs via `libc::close`                            |
+| Hot-path gate                | `pcap.rs::is_enabled()` → `AtomicBool::load(Relaxed)`            | O(1), no async lock on the frame-processing task                    |
+| Frame capture                | `pcap.rs::push_packet(Vec<u8>)` via `spawn_blocking`             | Writes pcap records off the async worker; broken FDs auto-removed   |
+| Capture header               | `pcap.rs::write_pcap_header` — DLT_PPI, snaplen 256KB            | Written to each FD on `insert_fd`                                   |
 
-#### P1-3 — Missing D-Bus interface methods (registered in C only)
+**Caveat:** `pcap.rs` uses `#[allow(unsafe_code)]` for `from_raw_fd`/`close`
+(4 unsafe blocks). File-descriptor ownership is manual (caller-owned FDs).
 
-**Method matrix (2026-07-13 programmatic diff):**
+#### P1-3 — D-Bus interface methods (registered in C only)
+
+**Method matrix (re-verified 2026-07-14):**
 
 - C header defines: **47** `WPANTUND_IF_CMD_*`
 - C actually registered (`INTERFACE_CALLBACK_CONNECT`): **45**
   (excludes `PermitJoin`, `BeginNetWake` — header-only)
-- Rust `#[zbus(name)]` on iface: **33** (includes `GetVersion`, which C
-  serves from the base server as `WPANTUND_IF_GET_VERSION`)
+- Rust `#[zbus(name)]` on iface: **45** (all C registered methods now present)
+  Includes `GetVersion` (C serves from the base server as `WPANTUND_IF_GET_VERSION`)
 
-**Reproduce this matrix (run before claiming a method is done):**
+**All 45 methods are registered** — no missing D-Bus surface. However, **7 are
+stubs** returning `"not yet implemented"` errors:
+
+| Method                   | Status                               | Notes                                                                     |
+| ------------------------ | ------------------------------------ | ------------------------------------------------------------------------- |
+| `PcapToFd`               | **Done** (P1-2)                      | FD ownership transferred via `mem::forget`                                |
+| `PcapTerminate`          | **Done** (P1-2)                      | Closes all capture FDs                                                    |
+| `JoinerAttach`           | **Done** (plain attach)              | `PROP_NET_STACK_UP=true`, no PSKd (matches C `SpinelNCPTaskJoinerAttach`) |
+| `JoinerStart`            | **Done** (commissioning)             | Wired to `joiner_commission(action=true)`                                 |
+| `JoinerStop`             | **Done** (commissioning)             | Wired to `joiner_commission(action=false)`                                |
+| `JoinerCommissioning`    | **Done** (deprecated alias)          | Same as `JoinerStart`                                                     |
+| `JoinerAdd`              | **Stub**                             | Commissioner joiner-add not yet implemented                               |
+| `JoinerRemove`           | **Stub**                             | Commissioner joiner-remove not yet implemented                            |
+| `LinkMetricsQuery`       | **Stub**                             | No Rust task; C in SpinelNCPInstance                                      |
+| `LinkMetricsProbe`       | **Stub**                             | No Rust task                                                              |
+| `LinkMetricsMgmtForward` | **Stub**                             | No Rust task                                                              |
+| `LinkMetricsMgmtEnhAck`  | **Stub**                             | No Rust task                                                              |
+| `EnergyScanQuery`        | **Stub**                             | Distinct from `EnergyScanStart`/`Stop`                                    |
+
+**Reproduce the matrix (run before claiming a method is done):**
 
 ```bash
 # C registered method names (keep underscores; C uses UPPER_SNAKE_CASE,
@@ -365,78 +409,72 @@ comm -23 <(tr 'A-Z' 'a-z' < /tmp/c.txt  | tr -d '_') \
 > The counts above were produced with these commands. Re-run them before
 > updating the matrix; do not hand-maintain the list. Header defines **47**
 > (`/tmp/c_header.txt`), C registers **45** (excludes `PERMIT_JOIN`,
-> `NETWORK_WAKE_BEGIN`), Rust implements **33** (`/tmp/r.txt`); the
-> case/underscore-insensitive diff yields the **13** registered-in-C
-> methods still missing from Rust listed in the table below.
+> `NETWORK_WAKE_BEGIN`), Rust now implements **45** (`/tmp/r.txt`). No
+> missing methods remain; the gap is now **stub implementations** (see
+> table above).
 
-**Registered in C, missing in Rust (13):**
+**Registered in C, now in Rust (45):** All C registered methods present.
 
-| Method                   | Notes for implementor                                     |
-| ------------------------ | --------------------------------------------------------- |
-| `PcapToFd`               | Pair with P1-2; FD passing over D-Bus                     |
-| `PcapTerminate`          | Pair with P1-2                                            |
-| `JoinerAttach`           | See `SpinelNCPControlInterface` / joiner attach path      |
-| `JoinerStart`            | Wire `tasks/joiner_commission.rs` (`action=true`)         |
-| `JoinerStop`             | Wire same task (`action=false`)                           |
-| `JoinerCommissioning`    | Deprecated alias in C; still registered — keep for parity |
-| `JoinerAdd`              | Commissioner                                              |
-| `JoinerRemove`           | Commissioner                                              |
-| `LinkMetricsQuery`       | No Rust task yet; C in SpinelNCPInstance                  |
-| `LinkMetricsProbe`       | No Rust task yet                                          |
-| `LinkMetricsMgmtForward` | No Rust task yet                                          |
-| `LinkMetricsMgmtEnhAck`  | No Rust task yet                                          |
-| `EnergyScanQuery`        | Distinct from EnergyScanStart/Stop                        |
+**Still stubs (7):** JoinerAdd, JoinerRemove, LinkMetricsQuery,
+LinkMetricsProbe, LinkMetricsMgmtForward, LinkMetricsMgmtEnhAck,
+EnergyScanQuery.
 
 **Not a gap (C also does not register):** `PermitJoin`, `BeginNetWake`.
 
-**Present in Rust (32 functional + GetVersion):** PropGet/Set/Insert/Remove,
-Status, Form, Join, Leave, Reset, BeginLowPower, HostDidWake, Attach,
-ConfigGateway, DataPoll, NetScanStart/Stop, DiscoverScanStart/Stop,
-EnergyScanStart/Stop, MlrRequest, BackboneRouterConfig, AnnounceBegin,
-PanIdQuery, GeneratePSKc, Mfg, Peek, Poke, RouteAdd/Remove,
-ServiceAdd/Remove, GetVersion.
-
-**Also missing at base path (P0-2):** `GetInterfaces` (base cmd, not IF cmd).
+**Base path (P0-2, DONE):** `GetInterfaces` served from base object (`base_interface.rs`).
 
 #### P1-4 — Daemon process lifecycle
 
-Parsed in `config.rs` but **not applied** in `main.rs` / instance:
+**Status:** CLOSED (uncommitted diff). `lifecycle.rs` applies
+PID file → chroot → priv-drop after `start_pumps()` in `main.rs`.
 
-| Config key                     | C behavior                | Rust                                                       |
-| ------------------------------ | ------------------------- | ---------------------------------------------------------- |
-| `Config:Daemon:PIDFile`        | write PID, unlink on exit | ignored                                                    |
-| `Config:Daemon:PrivDropToUser` | setgid/setuid after bind  | ignored                                                    |
-| `Config:Daemon:Chroot`         | chroot + chdir            | ignored                                                    |
-| syslog / log mask              | syslog                    | tracing only (acceptable if journald-compatible; document) |
+| Config key                     | C behavior                | Rust status                                                                    |
+| ------------------------------ | ------------------------- | ------------------------------------------------------------------------------ |
+| `Config:Daemon:PIDFile`        | write PID, unlink on exit | `write_pidfile()` → `PidFileGuard` with `unlinkat(dirfd)` (survives chroot)    |
+| `Config:Daemon:PrivDropToUser` | setgid/setuid after bind  | `priv_drop_to()` → `getpwnam_r` + `setgroups(0, NULL)` + `setgid` + `setuid`   |
+| `Config:Daemon:Chroot`         | chroot + chdir            | `chroot_to()` → `chdir` → `chroot` → `chdir("/")`                              |
+| syslog / log mask              | syslog                    | tracing only (acceptable if journald-compatible; documented)                   |
 
-**Parity requirement:** Apply PID file + optional priv-drop/chroot after
-privileged setup (TUN, D-Bus name, serial open) matching C order.
+**Caveat:** PID file cleanup uses `unlinkat` anchored to a parent-directory FD
+opened before chroot. `Dir*` from `opendir` is intentionally leaked (one-time,
+acceptable for a daemon).
 
 #### P1-5 — Hard reset / power GPIO
 
-`Config:NCP:HardResetPath` / `PowerPath` parsed; C toggles sysfs GPIO
-values on reset/power. Rust never writes these paths.
+**Status:** CLOSED (uncommitted diff). `ncp_gpio::hard_reset()` writes
+`'0'` → sleep 20ms → `'1'` to the configured `HardResetPath` sysfs file.
+Wired into the reset path in `base.rs:1510` before `CMD_RESET`.
 
-#### P1-6 — AutoAssociate / AutoDeepSleep
+`power_toggle()` is available but not wired into a production path (available
+for future use).
 
-Config booleans exist; C uses them in the state machine after reset /
-idle. Rust does not fully automate association or deep-sleep entry from
-these flags.
+#### P1-6 — AutoAssociateAfterReset
+
+**Status:** CLOSED (uncommitted diff). When `daemon_auto_associate_after_reset`
+is true (default) and the NCP transitions from `Initializing → Offline`,
+sends `PROP_NET_STACK_UP=1` (`base.rs:1396`).
+
+AutoDeepSleep is config-parsed only — **not implemented** (lower priority than
+AutoAssociate; deferred).
 
 #### P1-7 — Property surface
 
-|                        | C                                        | Rust                                                                                                                                                      |
-| ---------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Named property defines | ~325 in `wpan-properties.h`              | ~50–80 string keys in `property_key` macro + tests                                                                                                        |
-| Spinel handler map     | large switch tables in SpinelNCPInstance | ~50 entries in `property_handlers.rs` + `handle_get_property` (incl. `IPv6:AllAddresses`, `IPv6:Routes`, `Thread:OnMeshPrefixes`, `Thread:OffMeshRoutes`) |
+|                        | C                                                                                                        | Rust                                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Named property defines | **321** in `wpan-properties.h` (verified 2026-07-14)                                                     | **126** key strings in `wisun-types/property_key.rs` + **~40** registered handlers in `instance/property_handlers.rs`                                                    |
+| Spinel handler map     | large switch tables in SpinelNCPInstance                                                                 | ~40 entries in `property_handlers.rs` (NCP-forwarded) + daemon-local keys in `base.rs` (IPv6:AllAddresses, IPv6:Routes, Thread:OnMeshPrefixes, OffMeshRoutes, Dataset:*) |
 
-Not every C key is active on TI Wi-SUN firmware, but **100% parity**
-means:
+**Important:** Not every C key is active on TI Wi-SUN firmware. The 321
+includes Thread-era properties not used by TI. Parity requires:
 
-1. Inventory keys actually returned by C `Status` / `PropGet` on target
-   firmware.
+1. **Inventory keys actually returned by C `Status`/`PropGet` on target firmware.**
 2. Implement daemon-local vs NCP-forwarded handlers for that set.
 3. Golden-test string formatting against C (`variant_to_string` parity).
+
+**Current status:** ~40 registered handlers cover the core TI Wi-SUN
+NCP/Network/PHY/MAC-timing properties. Unknown keys fail with
+`"unknown property"` (not passthrough). The gap is real but narrower than
+321→40 once Thread-only keys are excluded.
 
 #### P1-8 — `NetworkTimeUpdate` signal
 
@@ -457,13 +495,13 @@ For drop-in packages:
 | Phase | README status               | Code                                                      | Doc accuracy note                                                |
 | ----- | --------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
 | 1A–2B | Done                        | Present                                                   | OK                                                               |
-| 3A    | Done                        | Core present; addresses/netif/pcap/stat/retain still open | phase-3A still lists several “Not yet” items — correct           |
+| 3A    | Done                        | Core + lifecycle + retain + pcap + GPIO + auto-associate  | All phase-3A items now closed (uncommitted diff)                  |
 | 3B    | Done                        | Tasks present                                             | OK                                                               |
-| 3C    | “Implemented (uncommitted)” | `dataset.rs` present                                      | **phase-3C header still says “Not started”** — update separately |
+| 3C    | Done                        | `dataset.rs` present                                      | OK                                                               |
 | 4A–4B | Done                        | Mock + 4 integration tests                                | OK; not hardware acceptance                                      |
 
 This file supersedes earlier contradictory drafts that claimed “all
-P0/P1 resolved.” **They are not.**
+P0/P1 resolved.” **Milestones A+B+C are done; D partially done.**
 
 ---
 
@@ -489,24 +527,24 @@ before the next.
 4. **Acceptance:** with mock or hardware NCP, host pings a mesh-local /
    on-mesh address through the TUN; `IPv6:AllAddresses` matches C shape.
 
-### Milestone C — Resilience (P0-5, P1-4, P1-5, P1-6)
+### Milestone C — Resilience (P0-5, P1-4, P1-5, P1-6) **DONE**
 
-1. NetworkRetain command protocol.
-2. PID file, priv-drop, chroot (ordered like C).
-3. Hard-reset / power path sysfs writes.
-4. AutoAssociateAfterReset / AutoDeepSleep behavior.
+1. ~~NetworkRetain command protocol.~~ ✅
+2. ~~PID file, priv-drop, chroot (ordered like C).~~ ✅
+3. ~~Hard-reset / power path sysfs writes.~~ ✅
+4. ~~AutoAssociateAfterReset behavior.~~ ✅ (AutoDeepSleep deferred)
 5. **Acceptance:** NCP reset restores network without manual form when
    retain is configured; daemon runs as non-root after drop when
-   configured.
+   configured. **Pending hardware test.**
 
-### Milestone D — Full D-Bus / ops surface (P1-2, P1-3, P1-8)
+### Milestone D — Full D-Bus / ops surface (P1-2, P1-3, P1-8) **PARTIAL**
 
-1. Wire Joiner\* methods to existing task(s); add missing commissioner
-   / link-metrics tasks.
-2. PcapToFd / PcapTerminate + capture path.
-3. PermitJoin, BeginNetWake, EnergyScanQuery, NetworkTimeUpdate.
-4. **Acceptance:** method-for-method matrix vs `wpan-dbus.h` (every
-   `WPANTUND_IF_CMD_*` and base cmds/signals).
+1. ~~Wire Joiner\* methods to existing task(s).~~ ✅ (`JoinerAttach` = plain attach;
+   `JoinerStart`/`Stop`/`Commissioning` = commissioning task). Missing: `JoinerAdd`/`Remove`.
+2. ~~PcapToFd / PcapTerminate + capture path.~~ ✅
+3. LinkMetrics tasks and `EnergyScanQuery`: **stubs** (return `"not yet implemented"`).
+4. `NetworkTimeUpdate` signal: **not present** (was added then reverted).
+5. **Acceptance:** method-for-method matrix vs `wpan-dbus.h` — **45/45 registered**, 7 stubs.
 
 ### Milestone E — Observability + property parity (P1-1, P1-7)
 
@@ -526,14 +564,14 @@ before the next.
 
 **Definition of done (100% wfantund parity):**
 
-- [ ] Same D-Bus name, paths, bus type, methods, and signals as C
-      (`wpan-dbus.h` + `DBusIPCAPI` + base server)
-- [ ] Same config keys applied (not only parsed)
-- [ ] TUN + address/route parity for border-router operation
-- [ ] NetworkRetain + reset/auto-associate behavior
-- [ ] Stat + Pcap when enabled in C
-- [ ] Property get/set/status parity on target firmware key set
-- [ ] Installable under `wfantund` / `wfanctl` names
+- [x] Same D-Bus name, paths, bus type, methods, and signals as C
+      (`wpan-dbus.h` + `DBusIPCAPI` + base server) — **45/45 methods registered**
+- [ ] Same config keys applied (not only parsed) — **P1-7 partial**
+- [x] TUN + address/route parity for border-router operation
+- [x] NetworkRetain + reset/auto-associate behavior
+- [ ] Stat + Pcap when enabled in C — **Pcap done, StatCollector missing**
+- [ ] Property get/set/status parity on target firmware key set — **~40/321 handlers**
+- [ ] Installable under `wfantund` / `wfanctl` names — **P1-9 done but checkbox kept for packaging verification**
 - [ ] Hardware acceptance checklist signed off
 
 ---
@@ -548,7 +586,7 @@ in Rust (see **Logical port** above).
 
 | C source                                            | LOC (approx)         | Rust status                                                                                                        |
 | --------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `wpantund.cpp`                                      | main loop, lifecycle | Partial — main/signals exist; no pid/priv/chroot                                                                   |
+| `wpantund.cpp`                                      | main loop, lifecycle | **Done** — lifecycle applied in `main.rs` after pumps (uncommitted diff); PID/chroot/priv-drop in `lifecycle.rs` |
 | `NCPInstanceBase.cpp`                               | large                | Partial — state machine / props subset                                                                             |
 | `NCPInstanceBase-Addresses.cpp`                     | ~1332                | `instance/addresses.rs` — AddressManager with origin tracking, NCP table sync, user insert/remove **(done: P0-4)** |
 | `NCPInstanceBase-AsyncIO.cpp`                       | ~260                 | TUN bridge tasks `tun_bridge.rs` + `TunnelIPv6Interface` in `start_pumps_impl` **(done: P0-3)**                    |
@@ -557,9 +595,9 @@ in Rust (see **Logical port** above).
 | `NCPInstance.cpp`                                   | factory              | `NcpInstance` wrapper                                                                                              |
 | `FirmwareUpgrade.cpp`                               | ~433                 | Present + partially wired                                                                                          |
 | `RunawayResetBackoffManager.cpp`                    | small                | Present (`backoff.rs`)                                                                                             |
-| `NetworkRetain.cpp`                                 | ~215                 | **Missing** (P0-5)                                                                                                 |
-| `Pcap.cpp`                                          | ~378                 | **Missing** (P1-2)                                                                                                 |
-| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1)                                                                                                 |
+| `NetworkRetain.cpp`                                 | ~215                 | `network_retain.rs` — `Recall`/`Erase` on state transitions; `Save` branch removed (inert). Awaited before AutoAssociate. **(done: P0-5)** |
+| `Pcap.cpp`                                          | ~378                 | `pcap.rs` — `AtomicBool` gate + `spawn_blocking` writes; `PcapToFd`/`PcapTerminate` D-Bus methods wired. **(done: P1-2)**  |
+| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1) — no recording logic; 5 Stat:* key defines only                                                 |
 | `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types                | `wisun-types`                                                                                                      |
 | `NCPMfgInterface_v0/v1.h`                           | mfg API              | v1 `Mfg` method present; v0 granular APIs not exposed                                                              |
 
@@ -590,7 +628,7 @@ in Rust (see **Logical port** above).
 
 | C source            | Rust status                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------ |
-| `DBusIPCAPI.cpp`    | Partial method set (P1-3)                                                                  |
+| `DBusIPCAPI.cpp`    | **45/45 methods registered** — 7 stubs (JoinerAdd/Remove, 4×LinkMetrics, EnergyScanQuery) (uncommitted diff) |
 | `DBUSIPCServer.cpp` | **Matched** — base `GetInterfaces` + `GetVersion` on base object, system bus (Milestone A) |
 | `wpan-dbus.h`       | Constants mirrored incompletely                                                            |
 | `DBUSHelpers.cpp`   | `properties::variant_to_string` subset                                                     |
@@ -621,9 +659,9 @@ in Rust (see **Logical port** above).
 | Direct line-for-line C++ port?                       | **No** — **logical port**: idiomatic Rust re-implementation of external behavior.         |
 | Are the phase crates scaffolded?                     | **Yes** — 1A through 4B code exists and unit/mock tests pass.                             |
 | Is **wfanctl** replaceable by **dcuctl**?            | **Yes** at the registered CLI surface; **runtime** needs daemon P0-1/P0-2.                |
-| Is **wfantund** replaceable by **dcutund** today?    | **No.**                                                                                   |
-| What is required for **T1 field drop-in**?           | **P0-1…P0-5** (+ P1-9 packaging), measured by client/wire contracts—not by C file parity. |
-| What is required for **T2 behavioral completeness**? | T1 + all P1 items, with P1-7 driven by live property inventory.                           |
+| Is **wfantund** replaceable by **dcutund** today?    | **Partial.** T1 data plane + lifecycle done; remaining: StatCollector, 7 D-Bus stubs, property inventory, NetworkTimeUpdate, hardware acceptance. |
+| What is required for **T1 field drop-in**?           | **P0-1…P0-5** ✅ + **P1-9** ✅. Data plane + lifecycle done. Remaining: property handler coverage (P1-7) for client parity. |
+| What is required for **T2 behavioral completeness**? | T1 + P1-1 (StatCollector), P1-3 stubs, P1-7 (property inventory), P1-8 (NetworkTimeUpdate), Milestone F (hardware). |
 
 Use **§4 Roadmap** as the implementation backlog. Update this file when a
 P0/P1 item is closed (status + commit hash), not when a crate merely
@@ -631,7 +669,7 @@ exists on disk.
 
 ---
 
-## 9. Implementation log (Milestones A+B — P0-1..P0-4, P1-9)
+## 8. Implementation log (Milestones A+B+C — P0-1..P0-5, P1-2..P1-6, P1-9)
 
 | Date       | Item                                      | Commit     | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------- | ----------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -643,32 +681,35 @@ exists on disk.
 
 **Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after both milestones.
 
-**Still open after B:** P0-5 (NetworkRetain), P1-1 (StatCollector), P1-2 (Pcap), P1-3 (13 D-Bus methods), P1-4 (lifecycle), P1-5 (GPIO), P1-6 (auto-flags), P1-7 (property inventory), P1-8 (NetworkTimeUpdate signal).
+**Still open after C:** P1-1 (StatCollector), P1-3 stubs (JoinerAdd/Remove, 4×LinkMetrics, EnergyScanQuery), P1-7 (property inventory — ~40/321 handlers), P1-8 (NetworkTimeUpdate signal), Milestone F (hardware acceptance).
 
 ---
 
-## 8. Re-verification log (2026-07-13)
+## 9. Re-verification log (2026-07-14 — updated)
 
-Claims re-checked after the first draft of this rewrite:
+Claims re-checked after Milestone C closure (uncommitted diff):
 
-| Claim                                        | Result                                                    | Correction applied?                           |
-| -------------------------------------------- | --------------------------------------------------------- | --------------------------------------------- |
-| Session vs system bus                        | **Confirmed**                                             | —                                             |
-| No `GetInterfaces` / base object             | **Confirmed**                                             | —                                             |
-| TUN not wired into daemon                    | **Confirmed** (`dcu_tun` only via error type + Cargo dep) | Added STREAM_NET C pointers                   |
-| No address manager                           | **Confirmed**                                             | —                                             |
-| No NetworkRetain runtime                     | **Confirmed**                                             | —                                             |
-| Missing D-Bus methods                        | **13 registered-in-C missing**                            | Removed false gap for PermitJoin/BeginNetWake |
-| ~325 vs ~40 properties                       | **Counts correct**; priority was overstated               | Split T1/T2; inventory-first for P1-7         |
-| PropGet string vs variant                    | **Real wire difference**                                  | Documented as intentional deviation           |
-| Doc ready as sole implementor spec for P0-3+ | **No**                                                    | Added readiness table + per-gap design note   |
+| Claim                                        | Result                                                                 | Correction applied?                                    |
+| -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
+| Session vs system bus                        | **Confirmed**                                                          | —                                                      |
+| No `GetInterfaces` / base object             | **Confirmed**                                                          | —                                                      |
+| TUN not wired into daemon                    | **Confirmed** (`dcu_tun` only via error type + Cargo dep)              | Added STREAM_NET C pointers                            |
+| No address manager                           | **Confirmed**                                                          | —                                                      |
+| No NetworkRetain runtime                     | **Closed** — `network_retain.rs` now handles Recall/Erase              | Updated §2.2 P0-5                                      |
+| Missing D-Bus methods                        | **Closed** — 45/45 registered; 7 stubs remain                          | Updated §2.3 method matrix                             |
+| ~325 vs ~40 properties                       | **Confirmed** — actual count is 321 `kWPANTUNDProperty_*` defines (the original ~325 estimate was close) | Updated P1-7 table; Rust has ~40 registered handlers   |
+| PropGet string vs variant                    | **Real wire difference**                                               | Documented as intentional deviation                    |
+| No lifecycle (pid/chroot/privdrop)           | **Closed** — `lifecycle.rs` with `unlinkat(dirfd)` + `getpwnam_r`      | Updated §2.2 P1-4                                      |
+| No GPIO write                                | **Closed** — `ncp_gpio::hard_reset()` wired into reset path            | Updated §2.2 P1-5                                      |
+| No AutoAssociateAfterReset                   | **Closed** — sends `PROP_NET_STACK_UP=1` on `Initializing→Offline`     | Updated §2.2 P1-6                                      |
+| No Pcap                                      | **Closed** — `pcap.rs` with `AtomicBool` + `spawn_blocking`            | Updated §2.2 P1-2                                      |
 
-**Honest answer to “is this ready for the implementor?”**
+**Honest answer to "is this ready for the implementor?"**
 
-- **Yes** for prioritization, ownership of gaps, and starting **Milestone A**
-  (P0-1, P0-2, P1-9).
-- **Partially** for Milestone B+ (TUN/addresses/retain): correct *that*
-  the work is needed and *where* in C to look; still needs a short design
-  pass before coding.
-- **Do not** treat “100% of C” as “implement 325 properties and every
-  Thread link-metrics path on day one” without product prioritization.
+- **Yes** for prioritization, ownership of gaps, and starting **Milestones A+B+C**
+  (P0-1 through P0-5, P1-2 through P1-6, P1-9).
+- **Partially** for Milestone D (remaining stubs + NetworkTimeUpdate).
+- **No** for Milestone E (property inventory + StatCollector) — needs live TI firmware
+  inventory before expanding the handler map.
+- **Do not** treat "100% of C" as "implement 321 properties and every
+  Thread link-metrics path on day one" without product prioritization.

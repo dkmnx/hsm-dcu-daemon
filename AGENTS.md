@@ -53,8 +53,8 @@ crates/wisun-types/ Rust port: foundational types
 crates/spinel/      Rust port: Spinel protocol codec
 ```
 
-See `doc/rust-porting/README.md` for the full Rust
-porting plan, crate architecture, and dependency map.
+See `doc/rust-porting/COVERAGE-GAP-ANALYSIS.md` for the Rust
+porting coverage analysis, gap list, and roadmap.
 
 ## Testing
 
@@ -85,7 +85,8 @@ porting plan, crate architecture, and dependency map.
 - **Rust port phases**: 10 phases from `wisun-types`
   → `spinel` → `dcu-tun`/`dcu-serial` → `dcu-dbus`/
   `dcuctl` → `dcu-tunnel-daemon` core → tasks → mock → e2e.
-  See `doc/rust-porting/` for per-phase specs.
+  See `doc/rust-porting/COVERAGE-GAP-ANALYSIS.md` for the gap
+  analysis and roadmap.
 - **Property key constants**: Defined once via
   `declare_property_keys!` macro in
   `crates/wisun-types/src/property_key.rs`. Add new properties
