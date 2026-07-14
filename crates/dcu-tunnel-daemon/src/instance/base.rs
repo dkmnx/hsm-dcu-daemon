@@ -319,6 +319,13 @@ pub struct NcpInstanceBase {
     /// Bridge task JoinHandles for clean stop (P1-3 fix).
     bridge_tasks: Vec<tokio::task::JoinHandle<()>>,
 
+    /// NetworkTimeUpdate channel (P1-8). The frame task decodes
+    /// unsolicited `PROP_THREAD_NETWORK_TIME` frames and sends
+    /// `(network_time: u64, time_sync_status: i8)` through this channel.
+    /// main.rs takes the receiver and emits the D-Bus signal.
+    time_update_tx: mpsc::UnboundedSender<(u64, i8)>,
+    pub(crate) time_update_rx: mpsc::UnboundedReceiver<(u64, i8)>,
+
     /// Pcap capture manager (P1-2). Active capture FDs receive
     /// Spinel frame data in pcap format.
     pcap: crate::pcap::PcapManager,
@@ -335,6 +342,7 @@ impl NcpInstanceBase {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
         let (stream_net_tx, _stream_net_rx) = mpsc::unbounded_channel();
         let (address_frame_tx, address_frame_rx) = mpsc::unbounded_channel();
+        let (time_update_tx, time_update_rx) = mpsc::unbounded_channel();
         let network_retain =
             crate::network_retain::NetworkRetain::new(config.daemon_network_retain_command.clone());
 
@@ -368,6 +376,8 @@ impl NcpInstanceBase {
             ),
             bridge_tasks: Vec::new(),
             pcap: crate::pcap::PcapManager::new(),
+            time_update_tx,
+            time_update_rx,
         })
     }
 
@@ -402,6 +412,7 @@ impl NcpInstanceBase {
         let scan_collector = self.scan_collector.clone();
         let stream_net_tx = self.stream_net_tx.clone();
         let address_frame_tx = self.address_frame_tx.clone();
+        let time_update_tx = self.time_update_tx.clone();
         let active_dataset = self.active_dataset.clone();
         let pending_dataset = self.pending_dataset.clone();
         let shared_state = self.shared_state.clone();
@@ -432,6 +443,17 @@ impl NcpInstanceBase {
                                 }
                                 if !response_table.deliver(&frame) {
                                     Self::dispatch_unsolicited_static(&frame, &scan_collector, &stream_net_tx).await;
+                                    // NetworkTimeUpdate: decode unsolicited PROP_THREAD_NETWORK_TIME.
+                                    if frame.command_id == spinel::command::CMD_PROP_VALUE_IS {
+                                        let mut r = spinel::pack::PackReader::new(&frame.payload);
+                                        if let Ok(prop) = r.read_uint_packed() {
+                                            if prop == spinel::property::PROP_THREAD_NETWORK_TIME {
+                                                if let (Ok(time), Ok(status)) = (r.read_uint64(), r.read_int8()) {
+                                                    let _ = time_update_tx.send((time, status));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 // Pcap: push frame payload to active capture FDs.
                                 // is_enabled is O(1) atomic check (no async lock).
@@ -1778,43 +1800,33 @@ impl NcpInstanceBase {
                 crate::tasks::joiner_commission::joiner_commission(self, true, &params).await?;
                 Ok("JoinerCommissioning started".into())
             }
-            Command::JoinerAdd { params: _ } => {
-                tracing::info!("JoinerAdd: commissioner joiner-add not yet implemented");
-                Err(DaemonError::Ncp("JoinerAdd not yet implemented".into()))
+            Command::JoinerAdd { params } => {
+                crate::tasks::commissioner_ops::joiner_add(self, &params).await?;
+                Ok("JoinerAdd: joiner added".into())
             }
-            Command::JoinerRemove { params: _ } => {
-                tracing::info!("JoinerRemove: commissioner joiner-remove not yet implemented");
-                Err(DaemonError::Ncp("JoinerRemove not yet implemented".into()))
+            Command::JoinerRemove { params } => {
+                crate::tasks::commissioner_ops::joiner_remove(self, &params).await?;
+                Ok("JoinerRemove: joiner removed".into())
             }
-            Command::LinkMetricsQuery { params: _ } => {
-                tracing::info!("LinkMetricsQuery: link metrics not yet implemented");
-                Err(DaemonError::Ncp(
-                    "LinkMetricsQuery not yet implemented".into(),
-                ))
+            Command::LinkMetricsQuery { params } => {
+                crate::tasks::commissioner_ops::link_metrics_query(self, &params).await?;
+                Ok("LinkMetricsQuery sent".into())
             }
-            Command::LinkMetricsProbe { params: _ } => {
-                tracing::info!("LinkMetricsProbe: link metrics not yet implemented");
-                Err(DaemonError::Ncp(
-                    "LinkMetricsProbe not yet implemented".into(),
-                ))
+            Command::LinkMetricsProbe { params } => {
+                crate::tasks::commissioner_ops::link_metrics_probe(self, &params).await?;
+                Ok("LinkMetricsProbe sent".into())
             }
-            Command::LinkMetricsMgmtForward { params: _ } => {
-                tracing::info!("LinkMetricsMgmtForward: link metrics not yet implemented");
-                Err(DaemonError::Ncp(
-                    "LinkMetricsMgmtForward not yet implemented".into(),
-                ))
+            Command::LinkMetricsMgmtForward { params } => {
+                crate::tasks::commissioner_ops::link_metrics_mgmt_forward(self, &params).await?;
+                Ok("LinkMetricsMgmtForward sent".into())
             }
-            Command::LinkMetricsMgmtEnhAck { params: _ } => {
-                tracing::info!("LinkMetricsMgmtEnhAck: link metrics not yet implemented");
-                Err(DaemonError::Ncp(
-                    "LinkMetricsMgmtEnhAck not yet implemented".into(),
-                ))
+            Command::LinkMetricsMgmtEnhAck { params } => {
+                crate::tasks::commissioner_ops::link_metrics_mgmt_enh_ack(self, &params).await?;
+                Ok("LinkMetricsMgmtEnhAck sent".into())
             }
-            Command::EnergyScanQuery { params: _ } => {
-                tracing::info!("EnergyScanQuery: energy scan query not yet implemented");
-                Err(DaemonError::Ncp(
-                    "EnergyScanQuery not yet implemented".into(),
-                ))
+            Command::EnergyScanQuery { params } => {
+                crate::tasks::commissioner_ops::energy_scan_query(self, &params).await?;
+                Ok("EnergyScanQuery sent".into())
             }
         }
     }

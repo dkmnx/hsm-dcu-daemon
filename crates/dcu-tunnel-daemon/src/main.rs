@@ -76,6 +76,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start I/O pumps (NCP <-> driver <-> TUN).
     instance.start_pumps().await?;
 
+    // Take the NetworkTimeUpdate receiver and spawn a task that emits the
+    // D-Bus signal whenever the NCP pushes a time update.
+    let time_update_rx = instance.take_time_update_rx();
+    let dbus_conn = dbus_server.conn_ref().clone();
+    let iface_path = dbus_server.iface_object_path_str().to_string();
+    tokio::spawn(async move {
+        let mut rx = time_update_rx;
+        while let Some((network_time, time_sync_status)) = rx.recv().await {
+            if let Err(e) = dcu_dbus::signals::emit_network_time_update(
+                &dbus_conn,
+                &iface_path,
+                network_time,
+                time_sync_status,
+            )
+            .await
+            {
+                tracing::warn!("Failed to emit NetworkTimeUpdate: {e}");
+            }
+        }
+    });
+
     // Apply lifecycle: PID file → chroot → priv-drop.
     // Must happen after serial/TUN/D-Bus are open (privileged setup).
     let _pid_guard = dcu_tunnel_daemon::lifecycle::apply_lifecycle(&lifecycle_config)?;

@@ -130,3 +130,25 @@ pub(crate) fn beacon_dict_value(beacon: &ScanBeacon) -> Value<'static> {
     let dict = beacon.to_dict();
     zbus::zvariant::Value::from(dict)
 }
+
+/// Emit a `NetworkTimeUpdate` signal.
+pub async fn emit_network_time_update(
+    conn: &zbus::Connection,
+    path: &str,
+    network_time: u64,
+    time_sync_status: i8,
+) -> Result<(), DbusError> {
+    let mut dict: HashMap<String, Variant> = HashMap::new();
+    dict.insert("Time".to_string(), Value::U64(network_time));
+    dict.insert("Status".to_string(), Value::I16(time_sync_status as i16));
+    let body = (dict,);
+    conn.emit_signal(
+        None::<&str>,
+        path,
+        crate::server::WPANTUND_DBUS_INTERFACE,
+        "NetworkTimeUpdate",
+        &body,
+    )
+    .await?;
+    Ok(())
+}

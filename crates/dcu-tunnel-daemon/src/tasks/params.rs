@@ -35,7 +35,7 @@ pub fn get_u16(params: &HashMap<String, Variant>, key: &str) -> Option<u16> {
     }
 }
 
-/// Read a `u32` parameter (decimal or hex string).
+/// Read a `u32` parameter (decimal or hex string with `0x` prefix).
 pub fn get_u32(params: &HashMap<String, Variant>, key: &str) -> Option<u32> {
     match params.get(key)? {
         Value::U32(n) => Some(*n),
@@ -43,11 +43,11 @@ pub fn get_u32(params: &HashMap<String, Variant>, key: &str) -> Option<u32> {
         Value::U8(n) => Some(*n as u32),
         Value::Str(s) => {
             let s = s.trim();
-            let s = s
-                .strip_prefix("0x")
-                .or_else(|| s.strip_prefix("0X"))
-                .unwrap_or(s);
-            u32::from_str_radix(s, 16).ok().or_else(|| s.parse().ok())
+            if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                s.parse().ok()
+            }
         }
         _ => None,
     }
@@ -55,15 +55,38 @@ pub fn get_u32(params: &HashMap<String, Variant>, key: &str) -> Option<u32> {
 
 /// Read a hex-string parameter as raw bytes (e.g. `"DEADBEEFCAFEBABE"`,
 /// optionally `0x`-prefixed). Used for keys and extended addresses.
+/// Returns `None` on odd-length strings (avoids slice panics).
 pub fn get_bytes(params: &HashMap<String, Variant>, key: &str) -> Option<Vec<u8>> {
     match params.get(key)? {
         Value::Str(s) => {
             let s = s.trim_start_matches("0x").trim_start_matches("0X");
+            if s.len() % 2 != 0 {
+                return None;
+            }
             (0..s.len())
                 .step_by(2)
                 .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
                 .collect::<Result<Vec<_>, _>>()
                 .ok()
+        }
+        _ => None,
+    }
+}
+
+/// Read a `u64` parameter (decimal or hex string with `0x` prefix).
+pub fn get_u64(params: &HashMap<String, Variant>, key: &str) -> Option<u64> {
+    match params.get(key)? {
+        Value::U64(n) => Some(*n),
+        Value::U32(n) => Some(*n as u64),
+        Value::U16(n) => Some(*n as u64),
+        Value::U8(n) => Some(*n as u64),
+        Value::Str(s) => {
+            let s = s.trim();
+            if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                u64::from_str_radix(hex, 16).ok()
+            } else {
+                s.parse().ok()
+            }
         }
         _ => None,
     }

@@ -8,6 +8,7 @@
 //!   `SpinelNCPTask*.cpp`)
 
 pub mod backoff;
+pub mod commissioner_ops;
 pub mod form;
 pub mod join;
 pub mod joiner_commission;

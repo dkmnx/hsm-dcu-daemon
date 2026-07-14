@@ -79,4 +79,11 @@ impl NcpInstance {
     pub async fn stop(&mut self) -> Result<(), DaemonError> {
         self.inner.stop().await
     }
+
+    /// Take the NetworkTimeUpdate receiver (P1-8). Call once from main.rs
+    /// to get a channel that receives `(network_time: u64, time_sync_status: i8)`
+    /// tuples whenever the NCP pushes an unsolicited `PROP_THREAD_NETWORK_TIME`.
+    pub fn take_time_update_rx(&mut self) -> mpsc::UnboundedReceiver<(u64, i8)> {
+        std::mem::replace(&mut self.inner.time_update_rx, mpsc::unbounded_channel().1)
+    }
 }
