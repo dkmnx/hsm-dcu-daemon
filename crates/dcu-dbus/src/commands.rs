@@ -81,4 +81,31 @@ pub enum Command {
         name: String,
         reply: oneshot::Sender<Result<Variant, crate::types::DbusError>>,
     },
+    // --- P1-3: 13 missing D-Bus methods ---
+    /// Start pcap capture on the given fd.
+    PcapToFd { fd: i32 },
+    /// Terminate pcap capture.
+    PcapTerminate,
+    /// Start joiner attach (Thread joiner).
+    JoinerAttach { params: HashMap<String, Variant> },
+    /// Start joiner commissioning.
+    JoinerStart { params: HashMap<String, Variant> },
+    /// Stop joiner commissioning.
+    JoinerStop,
+    /// Joiner commissioning (deprecated alias for JoinerStart).
+    JoinerCommissioning { params: HashMap<String, Variant> },
+    /// Add a joiner (commissioner side).
+    JoinerAdd { params: HashMap<String, Variant> },
+    /// Remove a joiner (commissioner side).
+    JoinerRemove { params: HashMap<String, Variant> },
+    /// Query link metrics for a neighbor.
+    LinkMetricsQuery { params: HashMap<String, Variant> },
+    /// Probe link metrics.
+    LinkMetricsProbe { params: HashMap<String, Variant> },
+    /// Forward link metrics management.
+    LinkMetricsMgmtForward { params: HashMap<String, Variant> },
+    /// Enhanced ACK link metrics management.
+    LinkMetricsMgmtEnhAck { params: HashMap<String, Variant> },
+    /// Energy scan query (distinct from start/stop).
+    EnergyScanQuery { params: HashMap<String, Variant> },
 }

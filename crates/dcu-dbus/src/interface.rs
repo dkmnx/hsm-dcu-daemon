@@ -5,6 +5,8 @@
 //! key is passed as a string method argument.
 
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 
 use tokio::sync::mpsc;
 use zbus::interface;
@@ -392,6 +394,178 @@ impl WpanInterface {
         let params = to_variant_map(params);
         self.command_tx
             .send(Command::ServiceRemove { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    // -------------------------------------------------------------------
+    // P1-3: 13 missing D-Bus methods (registered in C, absent in Rust).
+    // -------------------------------------------------------------------
+
+    /// Start pcap capture on the given file descriptor.
+    #[zbus(name = "PcapToFd")]
+    async fn pcap_to_fd(&self, fd: zbus::zvariant::OwnedFd) -> Result<i32, DbusError> {
+        // Transfer ownership: as_raw_fd gets the fd number, then forget
+        // prevents OwnedFd from closing it when dropped at end of scope.
+        #[cfg(unix)]
+        let raw_fd = {
+            let raw = fd.as_raw_fd();
+            std::mem::forget(fd);
+            raw
+        };
+        #[cfg(not(unix))]
+        let raw_fd = fd.as_raw_fd();
+        self.command_tx
+            .send(Command::PcapToFd { fd: raw_fd })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Terminate pcap capture.
+    #[zbus(name = "PcapTerminate")]
+    async fn pcap_terminate(&self) -> Result<i32, DbusError> {
+        self.command_tx
+            .send(Command::PcapTerminate)
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Start joiner attach (Thread joiner).
+    #[zbus(name = "JoinerAttach")]
+    async fn joiner_attach(&self, params: HashMap<String, OwnedValue>) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::JoinerAttach { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Start joiner commissioning.
+    #[zbus(name = "JoinerStart")]
+    async fn joiner_start(&self, params: HashMap<String, OwnedValue>) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::JoinerStart { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Stop joiner commissioning.
+    #[zbus(name = "JoinerStop")]
+    async fn joiner_stop(&self) -> Result<i32, DbusError> {
+        self.command_tx
+            .send(Command::JoinerStop)
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Joiner commissioning (deprecated alias for JoinerStart).
+    #[zbus(name = "JoinerCommissioning")]
+    async fn joiner_commissioning(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::JoinerCommissioning { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Add a joiner (commissioner side).
+    #[zbus(name = "JoinerAdd")]
+    async fn joiner_add(&self, params: HashMap<String, OwnedValue>) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::JoinerAdd { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Remove a joiner (commissioner side).
+    #[zbus(name = "JoinerRemove")]
+    async fn joiner_remove(&self, params: HashMap<String, OwnedValue>) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::JoinerRemove { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Query link metrics for a neighbor.
+    #[zbus(name = "LinkMetricsQuery")]
+    async fn link_metrics_query(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::LinkMetricsQuery { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Probe link metrics.
+    #[zbus(name = "LinkMetricsProbe")]
+    async fn link_metrics_probe(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::LinkMetricsProbe { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Forward link metrics management.
+    #[zbus(name = "LinkMetricsMgmtForward")]
+    async fn link_metrics_mgmt_forward(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::LinkMetricsMgmtForward { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Enhanced ACK link metrics management.
+    #[zbus(name = "LinkMetricsMgmtEnhAck")]
+    async fn link_metrics_mgmt_enh_ack(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::LinkMetricsMgmtEnhAck { params })
+            .await
+            .map_err(|e| DbusError::Transport(e.to_string()))?;
+        Ok(0)
+    }
+
+    /// Energy scan query (distinct from start/stop).
+    #[zbus(name = "EnergyScanQuery")]
+    async fn energy_scan_query(
+        &self,
+        params: HashMap<String, OwnedValue>,
+    ) -> Result<i32, DbusError> {
+        let params = to_variant_map(params);
+        self.command_tx
+            .send(Command::EnergyScanQuery { params })
             .await
             .map_err(|e| DbusError::Transport(e.to_string()))?;
         Ok(0)
