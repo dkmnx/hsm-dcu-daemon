@@ -60,6 +60,22 @@ impl NcpState {
     pub fn is_initializing(&self) -> bool {
         matches!(self, NcpState::Uninitialized | NcpState::Upgrading)
     }
+
+    /// Returns `true` if the NCP is in a commissioned state.
+    ///
+    /// Matches `ncp_state_is_commissioned()` from `NCPTypes.cpp:108-121`:
+    /// `Commissioned | Associated | NetWakeAsleep | Isolated | NetWakeWaking`.
+    /// No `TI_WISUN_FAN` guard — same for all builds.
+    pub fn is_commissioned(&self) -> bool {
+        matches!(
+            self,
+            NcpState::Commissioned
+                | NcpState::Associated
+                | NcpState::NetWakeAsleep
+                | NcpState::Isolated
+                | NcpState::NetWakeWaking
+        )
+    }
 }
 
 impl FromStr for NcpState {
@@ -228,6 +244,24 @@ mod tests {
         assert!(!NcpState::Associated.is_initializing());
         assert!(!NcpState::Associating.is_initializing());
         assert!(!NcpState::DeepSleep.is_initializing());
+    }
+
+    #[test]
+    fn ncp_state_is_commissioned() {
+        // Matches NCPTypes.cpp:108-121 — no TI guard.
+        assert!(NcpState::Commissioned.is_commissioned());
+        assert!(NcpState::Associated.is_commissioned());
+        assert!(NcpState::NetWakeAsleep.is_commissioned());
+        assert!(NcpState::Isolated.is_commissioned());
+        assert!(NcpState::NetWakeWaking.is_commissioned());
+        // Not commissioned:
+        assert!(!NcpState::Offline.is_commissioned());
+        assert!(!NcpState::Uninitialized.is_commissioned());
+        assert!(!NcpState::Fault.is_commissioned());
+        assert!(!NcpState::Associating.is_commissioned());
+        assert!(!NcpState::CredentialsNeeded.is_commissioned());
+        assert!(!NcpState::DeepSleep.is_commissioned());
+        assert!(!NcpState::Upgrading.is_commissioned());
     }
 
     #[test]
