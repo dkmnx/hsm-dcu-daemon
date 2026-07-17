@@ -330,6 +330,11 @@ pub struct NcpInstanceBase {
     /// Spinel frame data in pcap format.
     pcap: crate::pcap::PcapManager,
 
+    /// Packet and NCP state statistics collector (P1-1). Tracks
+    /// inbound/outbound packet counts and NCP state history, serves
+    /// Stat:* properties via D-Bus.
+    stat_collector: Arc<RwLock<crate::instance::stat_collector::StatCollector>>,
+
     /// AutoDeepSleep tickle task handle (P1-10). When the NCP enters deep
     /// sleep with AutoDeepSleep enabled, this task fires after
     /// `NCP_DEEP_SLEEP_TICKLE_TIMEOUT` (4200 s) to reset the NCP.
@@ -381,6 +386,9 @@ impl NcpInstanceBase {
             ),
             bridge_tasks: Vec::new(),
             pcap: crate::pcap::PcapManager::new(),
+            stat_collector: Arc::new(RwLock::new(
+                crate::instance::stat_collector::StatCollector::new(),
+            )),
             deep_sleep_tickle_task: std::sync::Mutex::new(None),
             time_update_tx,
             time_update_rx,
@@ -1288,10 +1296,12 @@ impl NcpInstanceBase {
                 .map_err(DaemonError::Tun)?;
             let outbound_tx = self.outbound_tx.clone();
             let ncp_state = self.ncp_state.clone();
+            let stat_collector = self.stat_collector.clone();
             self.bridge_tasks
                 .push(tokio::spawn(crate::instance::tun_bridge::ncp_to_tun(
                     tun_ref,
                     stream_net_rx,
+                    stat_collector.clone(),
                     cancel.clone(),
                 )));
             self.bridge_tasks
@@ -1303,6 +1313,7 @@ impl NcpInstanceBase {
                         .map_err(DaemonError::Tun)?,
                     outbound_tx,
                     ncp_state,
+                    stat_collector,
                     cancel,
                 )));
             tracing::info!("TUN bridge tasks spawned");
@@ -1349,6 +1360,13 @@ impl NcpInstanceBase {
             return;
         }
         tracing::info!("NCP state: {old} -> {state}");
+
+        // Record state change in stat collector before updating state.
+        self.stat_collector
+            .write()
+            .await
+            .record_ncp_state_change(state);
+
         *self.ncp_state.write().await = state;
 
         // DeepSleep side effect must happen before we hold the lock
@@ -1677,9 +1695,13 @@ impl NcpInstanceBase {
                 }
             }
             Command::GetProperty { name, reply } => {
-                let result = match self.query_property_by_name(&name).await {
-                    Ok(resp) => Self::parse_prop_response(&name, &resp.payload),
-                    Err(e) => Err(e),
+                let result = if name.starts_with("Stat:") {
+                    self.handle_stat_property(&name).await
+                } else {
+                    match self.query_property_by_name(&name).await {
+                        Ok(resp) => Self::parse_prop_response(&name, &resp.payload),
+                        Err(e) => Err(e),
+                    }
                 };
                 let _ = reply
                     .send(result.map_err(|e| dcu_dbus::types::DbusError::Transport(e.to_string())));
@@ -1905,6 +1927,24 @@ impl NcpInstanceBase {
                 Ok("EnergyScanQuery sent".into())
             }
         }
+    }
+
+    /// Handle a computed Stat:* property read.
+    async fn handle_stat_property(
+        &self,
+        name: &str,
+    ) -> Result<dcu_dbus::types::Variant, DaemonError> {
+        use zbus::zvariant::Value;
+        let stats = self.stat_collector.read().await;
+        let s = match name {
+            "Stat:RX" => stats.stat_rx(),
+            "Stat:TX" => stats.stat_tx(),
+            "Stat:NCP" => stats.stat_ncp(),
+            "Stat:Short" => stats.stat_short(),
+            "Stat:Long" => stats.stat_long(),
+            _ => return Err(DaemonError::Ncp(format!("unknown stat property: {name}"))),
+        };
+        Ok(Value::from(s))
     }
 }
 

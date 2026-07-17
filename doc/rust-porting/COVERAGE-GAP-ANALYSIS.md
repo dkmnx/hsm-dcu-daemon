@@ -123,7 +123,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | Target                 | Drop-in today?                   | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ---------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **wfanctl → dcuctl**   | **Yes** (CLI surface)            | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only (see P1-9). **Runtime unblocked after P0-1/P0-2 closed** — now works against a `dcutund` on the system bus.                                                                                                                                                                                                                                                                                               |
-| **wfantund → dcutund** | **Partial** (Milestones A+B+C+D) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, address/prefix/route manager, NetworkRetain, Pcap, lifecycle (pid/chroot/privdrop), GPIO, AutoAssociateAfterReset, full 45/45 D-Bus method surface, and the `NetworkTimeUpdate` signal. Remaining gaps: StatCollector (P1-1), property inventory (~40 registered handlers vs 321 C defines, P1-7), minor config gaps + dcu-serial transports (P1-10), and hardware acceptance (Milestone F). |
+| **wfantund → dcutund** | **Partial** (Milestones A+B+C+D) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, address/prefix/route manager, NetworkRetain, Pcap, lifecycle (pid/chroot/privdrop), GPIO, AutoAssociateAfterReset, full 45/45 D-Bus method surface, and the `NetworkTimeUpdate` signal. Remaining gaps: property inventory (~40 registered handlers vs 321 C defines, P1-7) and hardware acceptance (Milestone F). |
 
 ### Headline blockers for T1 field drop-in (P0)
 
@@ -139,7 +139,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 
 | ID        | Gap                                       | C source                                                                                    | Notes                                                                                                                                                    |
 | --------- | ----------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **P1-1**  | StatCollector + `Stat:*`                  | `StatCollector.cpp` (~1.7k)                                                                 | **Not implemented.** Largest deferred C body. 5 Stat:* key defines present but no recording logic.                                                       |
+| **P1-1**  | StatCollector + `Stat:*`                  | `StatCollector.cpp` (~1.7k)                                                                 | **Closed**. `instance/stat_collector.rs` — packet/NCP-state recording, 5 formatted properties, 11 unit tests.                                            |
 | **P1-2**  | Pcap + `PcapToFd` / `PcapTerminate`       | `Pcap.cpp` + registered in `DBusIPCAPI`                                                     | **Closed** (commit c8f0a10). `pcap.rs` + `AtomicBool` gate + `spawn_blocking` writes.                                                                    |
 | **P1-3**  | Missing **registered** D-Bus methods      | See §2.3 method matrix                                                                      | **Closed** (commits dcd085d + 6561ef4). **45/45 registered AND implemented** — all route to real task handlers; no stubs remain.                         |
 | **P1-4**  | PID file, priv-drop, chroot               | `wpantund.cpp`                                                                              | **Closed** (commit c8f0a10). `lifecycle.rs`: PID via `unlinkat(dirfd)`, `getpwnam_r`, `setgroups` before `setgid`.                                       |
@@ -336,8 +336,14 @@ by the dropped uid.
 C exposes many `Stat:*` properties (node TX/RX history, link quality,
 NCP state history, …) via `StatCollector::is_a_stat_property`.
 
-**Parity requirement:** Port stats recording on packet + state events
-and serve `Stat:*` via PropGet. Largest deferred C body (~1.7k LOC).
+**Status:** CLOSED. `instance/stat_collector.rs` — `StatCollector` with
+10 counters, 3 bounded histories (VecDeque max 64), IPv6 header parsing
+for protocol classification (UDP/TCP/ICMP), and 5 format methods
+(`stat_rx`, `stat_tx`, `stat_ncp`, `stat_short`, `stat_long`). Wired via
+`Arc<RwLock<StatCollector>>` into bridge tasks (packet recording),
+`set_ncp_state` (state recording), and `Command::GetProperty` (computed
+property serving). 11 unit tests. `cargo fmt`, `clippy`, `cargo test
+--workspace` all pass.
 
 #### P1-2 — Pcap
 
@@ -503,14 +509,14 @@ Several `wpantund.conf` keys are parsed into the `Config` struct but
 never read at runtime. They don’t block T1 field drop-in but represent
 genuine behavioral differences from the C daemon.
 
-| Config key                          | Field                             | C behavior                                     | Rust status                                              |
-| ----------------------------------- | --------------------------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | **Closed.** Tickle resets NCP after 70 min in deep sleep.                         |
-| `Config:Daemon:TerminateOnFault`    | `daemon_terminate_on_fault`       | Exit daemon on NCP `FAULT` state               | **Closed.** Exits when NCP enters FAULT and flag is set. |
-| `Config:Daemon:SyslogMask`          | `daemon_syslog_mask`              | syslog priority mask                           | Parsed only; Rust uses `tracing` (acceptable)            |
-| `Config:NCP:CCATreshold`            | `nc_cca_threshold`                | `PROP_PHY_CCA_THRESHOLD` sent to NCP           | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
-| `Config:NCP:TXPower`                | `nc_tx_power`                     | `PROP_PHY_TX_POWER` sent to NCP                | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
-| `Config:IPv6:WPANTundGlobalAddress` | `ipv6_wfantund_global_address`    | Global address on TUN interface                | Parsed only; C behavior not investigated                 |
+| Config key                          | Field                             | C behavior                                     | Rust status                                               |
+| ----------------------------------- | --------------------------------- | ---------------------------------------------- | --------------------------------------------------------- |
+| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | **Closed.** Tickle resets NCP after 70 min in deep sleep. |
+| `Config:Daemon:TerminateOnFault`    | `daemon_terminate_on_fault`       | Exit daemon on NCP `FAULT` state               | **Closed.** Exits when NCP enters FAULT and flag is set.  |
+| `Config:Daemon:SyslogMask`          | `daemon_syslog_mask`              | syslog priority mask                           | Parsed only; Rust uses `tracing` (acceptable)             |
+| `Config:NCP:CCATreshold`            | `nc_cca_threshold`                | `PROP_PHY_CCA_THRESHOLD` sent to NCP           | **Closed.** Sent on `Initializing→Offline` (`base.rs`).   |
+| `Config:NCP:TXPower`                | `nc_tx_power`                     | `PROP_PHY_TX_POWER` sent to NCP                | **Closed.** Sent on `Initializing→Offline` (`base.rs`).   |
+| `Config:IPv6:WPANTundGlobalAddress` | `ipv6_wfantund_global_address`    | Global address on TUN interface                | Parsed only; C behavior not investigated                  |
 
 #### dcu-serial transport status
 
@@ -631,7 +637,7 @@ in Rust (see **Logical port** above).
 | `RunawayResetBackoffManager.cpp`                    | small                | Present (`backoff.rs`)                                                                                                                     |
 | `NetworkRetain.cpp`                                 | ~215                 | `network_retain.rs` — `Recall`/`Erase` on state transitions; `Save` branch removed (inert). Awaited before AutoAssociate. **(done: P0-5)** |
 | `Pcap.cpp`                                          | ~378                 | `pcap.rs` — `AtomicBool` gate + `spawn_blocking` writes; `PcapToFd`/`PcapTerminate` D-Bus methods wired. **(done: P1-2)**                  |
-| `StatCollector.cpp`                                 | ~1737                | **Missing** (P1-1) — no recording logic; 5 Stat:* key defines only                                                                         |
+| `StatCollector.cpp`                                 | ~1737                | `stat_collector.rs` — packet/NCP-state recording, 5 format methods, 11 unit tests. **(done: P1-1)**                                        |
 | `NCPTypes.*` / `wpan-error.*` / `wpan-properties.h` | types                | `wisun-types`                                                                                                                              |
 | `NCPMfgInterface_v0/v1.h`                           | mfg API              | v1 `Mfg` method present; v0 granular APIs not exposed                                                                                      |
 

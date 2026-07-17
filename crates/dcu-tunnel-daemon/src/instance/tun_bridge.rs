@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use tokio::sync::{RwLock, mpsc};
 
+use crate::instance::stat_collector::StatCollector;
 use dcu_tun::TunnelIPv6Interface;
 use spinel::SpinelFrame;
 use spinel::property::{PROP_STREAM_NET, PROP_STREAM_NET_INSECURE};
@@ -31,6 +32,7 @@ use spinel::property::{PROP_STREAM_NET, PROP_STREAM_NET_INSECURE};
 pub async fn ncp_to_tun(
     tun: TunnelIPv6Interface,
     mut rx: mpsc::UnboundedReceiver<SpinelFrame>,
+    stat_collector: Arc<RwLock<StatCollector>>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
     loop {
@@ -40,6 +42,7 @@ pub async fn ncp_to_tun(
                 let Some(frame) = frame else { break };
                 match extract_ipv6(&frame.payload) {
                     Some(pkt) => {
+                        stat_collector.write().await.record_inbound_packet(pkt);
                         if let Err(e) = tun.async_write_packet(pkt).await {
                             tracing::warn!("TUN write failed: {e}");
                         }
@@ -58,6 +61,7 @@ pub async fn tun_to_ncp(
     tun: TunnelIPv6Interface,
     outbound_tx: mpsc::UnboundedSender<SpinelFrame>,
     ncp_state: Arc<RwLock<wisun_types::NcpState>>,
+    stat_collector: Arc<RwLock<StatCollector>>,
     cancel: tokio_util::sync::CancellationToken,
 ) {
     let mut buf = vec![0u8; 2000];
@@ -71,6 +75,7 @@ pub async fn tun_to_ncp(
                     Err(e) => { tracing::warn!("TUN read failed: {e}"); continue; }
                 };
                 let packet = &buf[..n];
+                stat_collector.write().await.record_outbound_packet(packet);
                 // Use the insecure stream while the NCP is not yet associated
                 // (mirrors C should_forward_ncpbound_frame: joining/credentials
                 // needed frames use STREAM_NET_INSECURE).
