@@ -1686,7 +1686,12 @@ impl NcpInstanceBase {
             }
             // --- Property operations ---
             Command::SetProperty { name, value } => {
-                match self.set_property_by_name(&name, value).await {
+                let result = if self.handle_daemon_property_set(&name, &value).await? {
+                    Ok(())
+                } else {
+                    self.set_property_by_name(&name, value).await
+                };
+                match result {
                     Ok(()) => Ok(format!("Set {name}")),
                     Err(e) => {
                         tracing::warn!("SetProperty {name} failed: {e}");
@@ -1697,6 +1702,8 @@ impl NcpInstanceBase {
             Command::GetProperty { name, reply } => {
                 let result = if name.starts_with("Stat:") {
                     self.handle_stat_property(&name).await
+                } else if let Some(val) = self.handle_daemon_property_get(&name).await {
+                    Ok(val)
                 } else {
                     match self.query_property_by_name(&name).await {
                         Ok(resp) => Self::parse_prop_response(&name, &resp.payload),
@@ -1945,6 +1952,55 @@ impl NcpInstanceBase {
             _ => return Err(DaemonError::Ncp(format!("unknown stat property: {name}"))),
         };
         Ok(Value::from(s))
+    }
+
+    /// Handle a daemon-local property read (P1-7).
+    ///
+    /// Returns `Some(value)` for properties that are daemon-internal
+    /// (config flags, runtime state) and should NOT be forwarded to the NCP.
+    async fn handle_daemon_property_get(&self, name: &str) -> Option<dcu_dbus::types::Variant> {
+        use zbus::zvariant::Value;
+        match name {
+            "Daemon:AutoAssociateAfterReset" => {
+                Some(Value::from(self.config.daemon_auto_associate_after_reset))
+            }
+            "Daemon:AutoDeepSleep" => Some(Value::from(self.config.daemon_auto_deep_sleep)),
+            "Daemon:AutoFirmwareUpdate" => {
+                Some(Value::from(self.config.daemon_auto_firmware_update))
+            }
+            "Daemon:SyslogMask" => Some(Value::from(
+                self.config.daemon_syslog_mask.clone().unwrap_or_default(),
+            )),
+            "Daemon:TerminateOnFault" => Some(Value::from(self.config.daemon_terminate_on_fault)),
+            "NCP:State" => {
+                let state = *self.ncp_state.read().await;
+                Some(Value::from(state.to_string()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Handle a daemon-local property write (P1-7).
+    ///
+    /// Returns `Ok(true)` if the property was handled here (daemon-local),
+    /// `Ok(false)` if it should be forwarded to the NCP.
+    async fn handle_daemon_property_set(
+        &self,
+        name: &str,
+        _value: &dcu_dbus::types::Variant,
+    ) -> Result<bool, DaemonError> {
+        match name {
+            "Daemon:AutoAssociateAfterReset"
+            | "Daemon:AutoDeepSleep"
+            | "Daemon:AutoFirmwareUpdate"
+            | "Daemon:SyslogMask"
+            | "Daemon:TerminateOnFault" => {
+                // These are startup config values — acknowledge but don't modify at runtime.
+                tracing::debug!("Daemon property {name} set (applied on next restart)");
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 }
 

@@ -57,6 +57,7 @@ pub(crate) fn build_handler_map() -> HashMap<&'static str, PropHandler> {
     prop!("NCP:Frequency", 0x23, ReadOnly);
     prop!("NCP:RSSI", 0x26, ReadOnly);
     prop!("NCP:ExtendedAddress", 0x1302, ReadOnly);
+    prop!("NCP:MACAddress", 0x1302, ReadOnly);
     prop!("NCP:MCUPowerState", 13, ReadWrite);
 
     // --- Network properties ---
