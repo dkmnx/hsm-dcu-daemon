@@ -1424,6 +1424,32 @@ impl NcpInstanceBase {
             }
         }
 
+        // Apply configured NCP PHY properties on Initializing→Offline (P1-10).
+        // The C daemon fetches these during startup (SpinelNCPInstance-Protothreads.cpp:496-497)
+        // and clients can `set NCP:CCAThreshold` / `set NCP:TXPower` at runtime via
+        // the property handlers; these config values are applied from wpantund.conf.
+        if old.is_initializing() && state == NcpState::Offline {
+            if let Some(tx_power) = self.config.nc_tx_power {
+                if let Err(e) = self
+                    .send_prop_set(spinel::property::PROP_PHY_TX_POWER, vec![tx_power as u8])
+                    .await
+                {
+                    tracing::warn!("Failed to set NCP:TXPower={tx_power}: {e}");
+                }
+            }
+            if let Some(cca_threshold) = self.config.nc_cca_threshold {
+                if let Err(e) = self
+                    .send_prop_set(
+                        spinel::property::PROP_PHY_CCA_THRESHOLD,
+                        vec![cca_threshold as u8],
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to set NCP:CCAThreshold={cca_threshold}: {e}");
+                }
+            }
+        }
+
         self.state_changed.notify_waiters();
     }
 
