@@ -1412,6 +1412,16 @@ impl NcpInstanceBase {
             } else {
                 tracing::info!("TUN {} set up={up}", tun.name());
             }
+            if up {
+                if let Some(addr) = self.config.ipv6_wfantund_global_address {
+                    if let Err(e) = tun.add_address(addr, 64) {
+                        tracing::warn!(
+                            "Failed to add default global address {addr} to {}: {e}",
+                            tun.name()
+                        );
+                    }
+                }
+            }
         }
 
         // NetworkRetain: save/recall/erase network info on state transitions.

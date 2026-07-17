@@ -37,7 +37,7 @@ pub struct Config {
     pub nc_cca_threshold: Option<i8>,
 
     // IPv6
-    pub ipv6_wfantund_global_address: Option<String>,
+    pub ipv6_wfantund_global_address: Option<std::net::Ipv6Addr>,
 
     // Firmware
     pub firmware_check_command: Option<String>,
@@ -169,7 +169,10 @@ impl Config {
             );
         }
         if let Some(v) = map.get("IPv6:WfantundGlobalAddress") {
-            cfg.ipv6_wfantund_global_address = Some(v.clone());
+            cfg.ipv6_wfantund_global_address =
+                Some(v.parse().map_err(|e| {
+                    DaemonError::Config(format!("IPv6:WfantundGlobalAddress: {e}"))
+                })?);
         }
         if let Some(v) = map.get("Config:NCP:FirmwareCheckCommand") {
             cfg.firmware_check_command = Some(v.clone());
