@@ -9,7 +9,7 @@ mock-pty = ["dep:portable-pty"]
 
 [dependencies]
 spinel = { path = "../spinel" }
-tokio = { workspace = true, features = ["io-util", "net", "rt", "macros"] }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "macros", "time"] }
 tokio-serial = "5"
 portable-pty = { version = "0.8", optional = true }
 nix = { workspace = true, features = ["fs", "process", "term", "signal"] }
