@@ -1375,6 +1375,10 @@ impl NcpInstanceBase {
                 }
                 NcpState::Fault => {
                     tracing::error!("NCP entered FAULT state");
+                    if self.config.daemon_terminate_on_fault {
+                        tracing::error!("TerminateOnFault: exiting due to NCP FAULT");
+                        std::process::exit(1);
+                    }
                 }
                 NcpState::Uninitialized => {
                     ds.is_connected = false;

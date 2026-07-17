@@ -148,7 +148,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | **P1-7**  | Property surface vs production set        | `wpan-properties.h` (**321** defines) vs **~40** Rust registered handlers + 126 key strings | **Open.** Inventory against live TI firmware required before expanding.                                                                                  |
 | **P1-8**  | `NetworkTimeUpdate` signal                | C connects `mOnNetworkTimeUpdate`                                                           | **Closed** (commit 6561ef4). `signals::emit_network_time_update` wired in `main.rs`; `base.rs` decodes `PROP_THREAD_NETWORK_TIME` into the emit channel. |
 | **P1-9**  | Binary / packaging names                  | Makefile vs Cargo                                                                           | **Closed** (6d1f72d). Symlink install script present.                                                                                                    |
-| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   | **Partial.** CCA threshold + TX power sent on startup; 4 config keys + 2 transports still open.                                                          |
+| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   | **Partial.** CCA threshold + TX power + TerminateOnFault closed; 3 config keys + 2 transports still open.                                                |
 
 ### Known intentional / already-documented deviations (not “missing code”)
 
@@ -499,14 +499,14 @@ Several `wpantund.conf` keys are parsed into the `Config` struct but
 never read at runtime. They don’t block T1 field drop-in but represent
 genuine behavioral differences from the C daemon.
 
-| Config key                          | Field                             | C behavior                                     | Rust status                                             |
-| ----------------------------------- | --------------------------------- | ---------------------------------------------- | ------------------------------------------------------- |
-| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | Parsed only; documented deferred                        |
-| `Config:Daemon:TerminateOnFault`    | `daemon_terminate_on_fault`       | Exit daemon on NCP `FAULT` state               | Parsed only; Rust ignores this flag                     |
-| `Config:Daemon:SyslogMask`          | `daemon_syslog_mask`              | syslog priority mask                           | Parsed only; Rust uses `tracing` (acceptable)           |
-| `Config:NCP:CCATreshold`            | `nc_cca_threshold`                | `PROP_PHY_CCA_THRESHOLD` sent to NCP           | **Closed.** Sent on `Initializing→Offline` (`base.rs`). |
-| `Config:NCP:TXPower`                | `nc_tx_power`                     | `PROP_PHY_TX_POWER` sent to NCP                | **Closed.** Sent on `Initializing→Offline` (`base.rs`). |
-| `Config:IPv6:WPANTundGlobalAddress` | `ipv6_wfantund_global_address`    | Global address on TUN interface                | Parsed only; C behavior not investigated                |
+| Config key                          | Field                             | C behavior                                     | Rust status                                              |
+| ----------------------------------- | --------------------------------- | ---------------------------------------------- | -------------------------------------------------------- |
+| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | Parsed only; documented deferred                         |
+| `Config:Daemon:TerminateOnFault`    | `daemon_terminate_on_fault`       | Exit daemon on NCP `FAULT` state               | **Closed.** Exits when NCP enters FAULT and flag is set. |
+| `Config:Daemon:SyslogMask`          | `daemon_syslog_mask`              | syslog priority mask                           | Parsed only; Rust uses `tracing` (acceptable)            |
+| `Config:NCP:CCATreshold`            | `nc_cca_threshold`                | `PROP_PHY_CCA_THRESHOLD` sent to NCP           | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
+| `Config:NCP:TXPower`                | `nc_tx_power`                     | `PROP_PHY_TX_POWER` sent to NCP                | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
+| `Config:IPv6:WPANTundGlobalAddress` | `ipv6_wfantund_global_address`    | Global address on TUN interface                | Parsed only; C behavior not investigated                 |
 
 #### dcu-serial transport gaps
 
