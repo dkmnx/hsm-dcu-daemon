@@ -545,6 +545,158 @@ impl AsyncWrite for SystemSocketpairTransport {
     }
 }
 
+/// An fd transport wrapping a raw file descriptor with async I/O.
+///
+/// Implements the `fd:` prefix from `Config:NCP:SocketPath`.
+/// The descriptor is duplicated with `dup()` and set to non-blocking mode.
+/// The dup'd fd is owned by this transport and closed on drop.
+pub struct FdTransport {
+    inner: AsyncFd<FdWrapper>,
+    fd: RawFd,
+}
+
+struct FdWrapper {
+    fd: RawFd,
+}
+
+impl FdWrapper {
+    fn new(fd: RawFd) -> Self {
+        Self { fd }
+    }
+}
+
+impl AsRawFd for FdWrapper {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl Drop for FdWrapper {
+    fn drop(&mut self) {
+        let _ = close(self.fd);
+    }
+}
+
+impl FdTransport {
+    /// Wrap an existing file descriptor as an async transport.
+    /// The fd is duplicated with `dup()` and the copy is set to non-blocking.
+    pub async fn spawn(path: &str) -> Result<Self, SerialError> {
+        let original_fd: RawFd = path.parse().map_err(|e| {
+            SerialError::InvalidConfig(format!("fd: invalid descriptor number '{path}': {e}"))
+        })?;
+
+        let fd = unsafe { libc::dup(original_fd) };
+        if fd < 0 {
+            return Err(SerialError::Io(std::io::Error::last_os_error()));
+        }
+
+        let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(|e| SerialError::Io(nix_err(e)))?;
+        let flags = OFlag::from_bits_truncate(flags).union(OFlag::O_NONBLOCK);
+        fcntl(fd, FcntlArg::F_SETFL(flags)).map_err(|e| SerialError::Io(nix_err(e)))?;
+
+        let inner = AsyncFd::new(FdWrapper::new(fd)).map_err(SerialError::Io)?;
+
+        tracing::debug!("fd transport: wrapping fd={} (dup of {})", fd, original_fd);
+
+        Ok(Self { inner, fd })
+    }
+}
+
+impl Transport for FdTransport {
+    fn raw_fd(&self) -> Option<RawFd> {
+        Some(self.fd)
+    }
+
+    fn info(&self) -> String {
+        format!("fd:{}", self.fd)
+    }
+}
+
+impl AsyncRead for FdTransport {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        loop {
+            let mut guard = match self.inner.poll_read_ready(cx) {
+                Poll::Ready(Ok(guard)) => guard,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            };
+
+            let n = unsafe {
+                let unfilled = buf.initialize_unfilled();
+                libc::read(
+                    guard.get_inner().fd,
+                    unfilled.as_mut_ptr() as *mut libc::c_void,
+                    unfilled.len(),
+                )
+            };
+
+            match n {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() == std::io::ErrorKind::WouldBlock {
+                        guard.clear_ready();
+                        continue;
+                    }
+                    return Poll::Ready(Err(err));
+                }
+                0 => return Poll::Ready(Ok(())),
+                n => {
+                    buf.advance(n as usize);
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }
+    }
+}
+
+impl AsyncWrite for FdTransport {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        loop {
+            let mut guard = match self.inner.poll_write_ready(cx) {
+                Poll::Ready(Ok(guard)) => guard,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            };
+
+            let n = unsafe {
+                libc::write(
+                    guard.get_inner().fd,
+                    buf.as_ptr() as *const libc::c_void,
+                    buf.len(),
+                )
+            };
+
+            match n {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() == std::io::ErrorKind::WouldBlock {
+                        guard.clear_ready();
+                        continue;
+                    }
+                    return Poll::Ready(Err(err));
+                }
+                n => return Poll::Ready(Ok(n as usize)),
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

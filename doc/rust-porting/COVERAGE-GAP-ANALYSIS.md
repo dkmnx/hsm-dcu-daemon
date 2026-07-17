@@ -150,9 +150,9 @@ this doc + `DBUSIPCServer.cpp` alone.
 | **P1-9**  | Binary / packaging names                  | Makefile vs Cargo                                                                           | **Closed** (6d1f72d). Symlink install script present.                                                                                                    |
 | **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   | **Partial.** CCA threshold + TX power + TerminateOnFault + system-socketpair closed; 2 config keys + fd: remain.                                         |
 
-> **Note:** The `system:`, `system-forkpty:`, and `system-socketpair:` transports are **fully implemented**
-> via `SystemTransport`/`SystemSocketpairTransport` (`dcu-serial/src/system.rs`).
-> Only `fd:` remains a stub.
+> **Note:** All transports are now implemented: `system:` (PTY), `system-forkpty:` (PTY),
+> `system-socketpair:` (socketpair), and `fd:` (raw descriptor). See `dcu-serial/src/system.rs`.
+> No transport stubs remain.
 
 ### Known intentional / already-documented deviations (not “missing code”)
 
@@ -512,15 +512,13 @@ genuine behavioral differences from the C daemon.
 | `Config:NCP:TXPower`                | `nc_tx_power`                     | `PROP_PHY_TX_POWER` sent to NCP                | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
 | `Config:IPv6:WPANTundGlobalAddress` | `ipv6_wfantund_global_address`    | Global address on TUN interface                | Parsed only; C behavior not investigated                 |
 
-#### dcu-serial transport gaps
+#### dcu-serial transport status
 
-The `dcu-serial` crate supports UART, TCP, `system:`, `system-forkpty:`, and
-`system-socketpair:` transports. The only remaining stub is:
+The `dcu-serial` crate supports all transport types: UART, TCP, `system:`
+(PTY), `system-forkpty:` (PTY), `system-socketpair:` (socketpair), and
+`fd:` (raw descriptor). No transport stubs remain.
 
-- `fd:` — dup a raw file descriptor
-
-This returns `"not yet implemented"` in `dispatch.rs` and is needed if the daemon is configured
-with `Config:NCP:SocketPath fd:<n>`.
+All four `system:*` and `fd:` implementations live in `dcu-serial/src/system.rs`.
 
 ---
 

@@ -5,7 +5,7 @@
 //! in `socket-utils.c`.
 
 use crate::error::SerialError;
-use crate::system::{SystemSocketpairTransport, SystemTransport};
+use crate::system::{FdTransport, SystemSocketpairTransport, SystemTransport};
 use crate::tcp::TcpTransport;
 use crate::transport::Transport;
 use crate::uart::{SerialConfig, UartTransport};
@@ -258,9 +258,7 @@ pub async fn open_transport(
         SocketPathType::SystemSocketpair => {
             Ok(Box::new(SystemSocketpairTransport::spawn(&filename).await?))
         }
-        SocketPathType::Fd => Err(SerialError::InvalidConfig(
-            "fd: transport not yet implemented".to_string(),
-        )),
+        SocketPathType::Fd => Ok(Box::new(FdTransport::spawn(&filename).await?)),
     }
 }
 
