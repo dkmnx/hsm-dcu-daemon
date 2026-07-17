@@ -312,6 +312,239 @@ impl AsyncWrite for SystemTransport {
     }
 }
 
+/// A system-socketpair transport wrapping a socketpair fd with async I/O.
+///
+/// Implements the `system-socketpair:` prefix from `Config:NCP:SocketPath`.
+/// Creates a Unix socketpair, forks, and the child communicates over stdio
+/// through the socket. Unlike `system:` (PTY-based), this avoids PTY
+/// overhead and doesn't require a controlling terminal.
+pub struct SystemSocketpairTransport {
+    inner: AsyncFd<SocketpairFd>,
+    pid: Pid,
+}
+
+/// Wrapper around a raw socketpair fd for `AsyncFd` integration.
+struct SocketpairFd {
+    fd: RawFd,
+}
+
+impl SocketpairFd {
+    fn new(fd: RawFd) -> Self {
+        Self { fd }
+    }
+}
+
+impl AsRawFd for SocketpairFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl Drop for SocketpairFd {
+    fn drop(&mut self) {
+        let entry = CHILD_TABLE.lock().ok().and_then(|mut table| {
+            table
+                .iter()
+                .position(|e| e.master_fd == self.fd)
+                .map(|pos| table.remove(pos))
+        });
+        let _ = close(self.fd);
+        if let Some(entry) = entry {
+            std::thread::spawn(move || {
+                let _ = kill(entry.pid, Signal::SIGHUP);
+                for _ in 0..10 {
+                    match waitpid(entry.pid, Some(WaitPidFlag::WNOHANG)) {
+                        Ok(WaitStatus::StillAlive) => {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        _ => return,
+                    }
+                }
+                let _ = kill(entry.pid, Signal::SIGTERM);
+                for _ in 0..5 {
+                    match waitpid(entry.pid, Some(WaitPidFlag::WNOHANG)) {
+                        Ok(WaitStatus::StillAlive) => {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        _ => return,
+                    }
+                }
+                let _ = kill(entry.pid, Signal::SIGKILL);
+                let _ = waitpid(entry.pid, None);
+            });
+        }
+    }
+}
+
+impl SystemSocketpairTransport {
+    /// Spawn a child process behind a Unix socketpair.
+    /// The command is executed via `/bin/sh -c <command>`.
+    pub async fn spawn(command: &str) -> Result<Self, SerialError> {
+        // Create a Unix socketpair
+        let mut fds = [0i32; 2];
+        let ret =
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
+        if ret != 0 {
+            return Err(SerialError::Io(std::io::Error::last_os_error()));
+        }
+        let parent_fd = fds[0];
+        let child_fd = fds[1];
+
+        match unsafe { fork() }.map_err(|e| SerialError::Io(nix_err(e)))? {
+            ForkResult::Parent { child } => {
+                // Parent: close child end, set non-blocking, wrap
+                let _ = close(child_fd);
+
+                let flags =
+                    fcntl(parent_fd, FcntlArg::F_GETFL).map_err(|e| SerialError::Io(nix_err(e)))?;
+                let flags = OFlag::from_bits_truncate(flags).union(OFlag::O_NONBLOCK);
+                fcntl(parent_fd, FcntlArg::F_SETFL(flags))
+                    .map_err(|e| SerialError::Io(nix_err(e)))?;
+
+                if let Ok(mut table) = CHILD_TABLE.lock() {
+                    table.push(ChildEntry {
+                        pid: child,
+                        master_fd: parent_fd,
+                    });
+                }
+
+                let sf = SocketpairFd::new(parent_fd);
+                let inner = AsyncFd::new(sf).map_err(SerialError::Io)?;
+
+                tracing::info!(
+                    "system-socketpair transport: spawned pid={} for command {:?}",
+                    child,
+                    command
+                );
+
+                Ok(Self { inner, pid: child })
+            }
+            ForkResult::Child => {
+                // Child: close parent end, redirect stdio, exec
+                let _ = close(parent_fd);
+
+                let _ = dup2(child_fd, libc::STDIN_FILENO);
+                let _ = dup2(child_fd, libc::STDOUT_FILENO);
+                let _ = dup2(child_fd, libc::STDERR_FILENO);
+
+                if child_fd > 2 {
+                    let _ = close(child_fd);
+                }
+
+                close_fds_above(libc::STDERR_FILENO);
+
+                let shell = std::ffi::CString::new("/bin/sh").unwrap();
+                let arg_c = std::ffi::CString::new("-c").unwrap();
+                let cmd_c = match std::ffi::CString::new(command) {
+                    Ok(c) => c,
+                    Err(_) => unsafe {
+                        libc::_exit(127);
+                    },
+                };
+                let _ = execvp(&shell, &[&shell, &arg_c, &cmd_c]);
+                unsafe {
+                    libc::_exit(127);
+                }
+            }
+        }
+    }
+}
+
+impl Transport for SystemSocketpairTransport {
+    fn raw_fd(&self) -> Option<RawFd> {
+        Some(self.inner.get_ref().as_raw_fd())
+    }
+
+    fn info(&self) -> String {
+        format!("system-socketpair:pid={}", self.pid)
+    }
+}
+
+impl AsyncRead for SystemSocketpairTransport {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        loop {
+            let mut guard = match self.inner.poll_read_ready(cx) {
+                Poll::Ready(Ok(guard)) => guard,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            };
+
+            let n = unsafe {
+                let unfilled = buf.initialize_unfilled();
+                libc::read(
+                    guard.get_inner().as_raw_fd(),
+                    unfilled.as_mut_ptr() as *mut libc::c_void,
+                    unfilled.len(),
+                )
+            };
+
+            match n {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() == std::io::ErrorKind::WouldBlock {
+                        guard.clear_ready();
+                        continue;
+                    }
+                    return Poll::Ready(Err(err));
+                }
+                0 => return Poll::Ready(Ok(())),
+                n => {
+                    buf.advance(n as usize);
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }
+    }
+}
+
+impl AsyncWrite for SystemSocketpairTransport {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        loop {
+            let mut guard = match self.inner.poll_write_ready(cx) {
+                Poll::Ready(Ok(guard)) => guard,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            };
+
+            let n = unsafe {
+                libc::write(
+                    guard.get_inner().as_raw_fd(),
+                    buf.as_ptr() as *const libc::c_void,
+                    buf.len(),
+                )
+            };
+
+            match n {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() == std::io::ErrorKind::WouldBlock {
+                        guard.clear_ready();
+                        continue;
+                    }
+                    return Poll::Ready(Err(err));
+                }
+                n => return Poll::Ready(Ok(n as usize)),
+            }
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

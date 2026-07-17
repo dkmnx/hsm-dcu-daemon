@@ -148,11 +148,11 @@ this doc + `DBUSIPCServer.cpp` alone.
 | **P1-7**  | Property surface vs production set        | `wpan-properties.h` (**321** defines) vs **~40** Rust registered handlers + 126 key strings | **Open.** Inventory against live TI firmware required before expanding.                                                                                  |
 | **P1-8**  | `NetworkTimeUpdate` signal                | C connects `mOnNetworkTimeUpdate`                                                           | **Closed** (commit 6561ef4). `signals::emit_network_time_update` wired in `main.rs`; `base.rs` decodes `PROP_THREAD_NETWORK_TIME` into the emit channel. |
 | **P1-9**  | Binary / packaging names                  | Makefile vs Cargo                                                                           | **Closed** (6d1f72d). Symlink install script present.                                                                                                    |
-| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   |
+| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   | **Partial.** CCA threshold + TX power + TerminateOnFault + system-socketpair closed; 2 config keys + fd: remain.                                         |
 
-> **Note:** The `system:` and `system-forkpty:` transports are **fully implemented**
-> via `SystemTransport::spawn` (`dcu-serial/src/system.rs`). Only `system-socketpair:`
-> and `fd:` remain stubs.                                                |
+> **Note:** The `system:`, `system-forkpty:`, and `system-socketpair:` transports are **fully implemented**
+> via `SystemTransport`/`SystemSocketpairTransport` (`dcu-serial/src/system.rs`).
+> Only `fd:` remains a stub.
 
 ### Known intentional / already-documented deviations (not “missing code”)
 
@@ -514,16 +514,13 @@ genuine behavioral differences from the C daemon.
 
 #### dcu-serial transport gaps
 
-The `dcu-serial` crate supports UART, TCP, `system:`, and `system-forkpty:`
-transports. The `system:` (forkpty) and `system-forkpty:` transports are fully
-implemented via `SystemTransport::spawn` in `dcu-serial/src/system.rs` (~329 LOC).
+The `dcu-serial` crate supports UART, TCP, `system:`, `system-forkpty:`, and
+`system-socketpair:` transports. The only remaining stub is:
 
-**Still missing:**
-- `system-socketpair:` — fork + socketpair (`dispatch.rs:259`)
-- `fd:` — dup a raw file descriptor (`dispatch.rs:262`)
+- `fd:` — dup a raw file descriptor
 
-These return `"not yet implemented"` and are needed if the daemon is configured
-with `Config:NCP:SocketPath system-socketpair:<cmd>` or `fd:<n>`.
+This returns `"not yet implemented"` in `dispatch.rs` and is needed if the daemon is configured
+with `Config:NCP:SocketPath fd:<n>`.
 
 ---
 
