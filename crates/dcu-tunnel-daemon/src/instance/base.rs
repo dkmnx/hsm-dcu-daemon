@@ -329,6 +329,11 @@ pub struct NcpInstanceBase {
     /// Pcap capture manager (P1-2). Active capture FDs receive
     /// Spinel frame data in pcap format.
     pcap: crate::pcap::PcapManager,
+
+    /// AutoDeepSleep tickle task handle (P1-10). When the NCP enters deep
+    /// sleep with AutoDeepSleep enabled, this task fires after
+    /// `NCP_DEEP_SLEEP_TICKLE_TIMEOUT` (4200 s) to reset the NCP.
+    deep_sleep_tickle_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl NcpInstanceBase {
@@ -376,6 +381,7 @@ impl NcpInstanceBase {
             ),
             bridge_tasks: Vec::new(),
             pcap: crate::pcap::PcapManager::new(),
+            deep_sleep_tickle_task: std::sync::Mutex::new(None),
             time_update_tx,
             time_update_rx,
         })
@@ -1331,6 +1337,9 @@ impl NcpInstanceBase {
             handle.abort();
             let _ = handle.await;
         }
+        if let Some(h) = self.deep_sleep_tickle_task.lock().unwrap().take() {
+            h.abort();
+        }
         Ok(())
     }
 
@@ -1451,6 +1460,33 @@ impl NcpInstanceBase {
                 {
                     tracing::warn!("Failed to set NCP:CCAThreshold={cca_threshold}: {e}");
                 }
+            }
+        }
+
+        // AutoDeepSleep tickle: start a timer on entering DeepSleep.
+        // If the NCP stays asleep for NCP_DEEP_SLEEP_TICKLE_TIMEOUT, reset it.
+        if state == NcpState::DeepSleep
+            && self.config.daemon_auto_deep_sleep
+            && self.deep_sleep_tickle_task.lock().unwrap().is_none()
+        {
+            let outbound = self.outbound_tx.clone();
+            let ncp_state = self.ncp_state.clone();
+            let timeout_ms = wisun_types::NCP_DEEP_SLEEP_TICKLE_TIMEOUT_MS;
+            let handle = tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)).await;
+                let current = *ncp_state.read().await;
+                if current == NcpState::DeepSleep {
+                    tracing::warn!(
+                        "DEEP-SLEEP-TICKLE: NCP deep sleep exceeded {timeout_ms}ms, resetting"
+                    );
+                    let frame = spinel::frame::SpinelFrame::new(spinel::command::CMD_RESET, vec![]);
+                    let _ = outbound.send(frame);
+                }
+            });
+            *self.deep_sleep_tickle_task.lock().unwrap() = Some(handle);
+        } else if state != NcpState::DeepSleep {
+            if let Some(h) = self.deep_sleep_tickle_task.lock().unwrap().take() {
+                h.abort();
             }
         }
 

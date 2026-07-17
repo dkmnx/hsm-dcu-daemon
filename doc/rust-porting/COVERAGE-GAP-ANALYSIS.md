@@ -460,7 +460,7 @@ for future use).
 is true (default) and the NCP transitions from `Initializing → Offline`,
 sends `PROP_NET_STACK_UP=1` (`base.rs:1396`).
 
-AutoDeepSleep is config-parsed only — **not implemented** (lower priority than
+(AutoDeepSleep is now implemented — tickle timer on DeepSleep entry)
 AutoAssociate; deferred).
 
 #### P1-7 — Property surface
@@ -505,7 +505,7 @@ genuine behavioral differences from the C daemon.
 
 | Config key                          | Field                             | C behavior                                     | Rust status                                              |
 | ----------------------------------- | --------------------------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | Parsed only; documented deferred                         |
+| `Config:Daemon:AutoDeepSleep`       | `daemon_auto_deep_sleep`          | NCP deep-sleep tickle timer (4200 s)           | **Closed.** Tickle resets NCP after 70 min in deep sleep.                         |
 | `Config:Daemon:TerminateOnFault`    | `daemon_terminate_on_fault`       | Exit daemon on NCP `FAULT` state               | **Closed.** Exits when NCP enters FAULT and flag is set. |
 | `Config:Daemon:SyslogMask`          | `daemon_syslog_mask`              | syslog priority mask                           | Parsed only; Rust uses `tracing` (acceptable)            |
 | `Config:NCP:CCATreshold`            | `nc_cca_threshold`                | `PROP_PHY_CCA_THRESHOLD` sent to NCP           | **Closed.** Sent on `Initializing→Offline` (`base.rs`).  |
@@ -565,7 +565,7 @@ before the next.
 1. ~~NetworkRetain command protocol.~~ ✅
 2. ~~PID file, priv-drop, chroot (ordered like C).~~ ✅
 3. ~~Hard-reset / power path sysfs writes.~~ ✅
-4. ~~AutoAssociateAfterReset behavior.~~ ✅ (AutoDeepSleep deferred)
+4. ~~AutoAssociateAfterReset behavior.~~ ✅
 5. **Acceptance:** NCP reset restores network without manual form when
    retain is configured; daemon runs as non-root after drop when
    configured. **Pending hardware test.**
@@ -762,7 +762,7 @@ shows these were committed before this re-verification:
   (P0-1 through P0-5, P1-2 through P1-9 — all closed).
 - **No** for Milestone E (property inventory + StatCollector, P1-1) — needs live TI firmware
   inventory before expanding the handler map.
-- **Deferred / non-blocking:** `AutoDeepSleep` (config-parsed only), `dcu-serial` `system:`/`fd:`
+- **Deferred / non-blocking:** `dcu-serial` `system:`/`fd:`
   transports (not yet implemented), `IPv6PacketMatcher` not on the live path.
 - **Do not** treat "100% of C" as "implement 321 properties and every
   Thread link-metrics path on day one" without product prioritization.
