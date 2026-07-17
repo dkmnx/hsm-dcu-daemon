@@ -15,6 +15,76 @@ use dcu_dbus::{DaemonState, DbusServer};
 use dcu_tunnel_daemon::NcpInstance;
 use dcu_tunnel_daemon::config::Config;
 
+/// Pre-parse the config file for `SyslogMask` to determine the tracing
+/// log level before the full config is parsed. This allows the tracing
+/// subscriber to be initialized with the correct filter from the start.
+///
+/// Returns the tracing `EnvFilter` string (e.g. `"info"`, `"warn"`, `"debug"`).
+fn pre_parse_syslog_mask(config_path: &str) -> String {
+    use std::io::BufRead;
+    if let Ok(file) = std::fs::File::open(config_path) {
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            let trimmed = line.trim();
+            if trimmed.starts_with('#') || trimmed.is_empty() {
+                continue;
+            }
+            if let Some(val) = trimmed.strip_prefix("SyslogMask") {
+                let val = val.trim().trim_start_matches('=').trim();
+                return parse_syslog_mask_to_tracing_level(val);
+            }
+        }
+    }
+    // Default: respect RUST_LOG, fall back to info
+    "info".to_string()
+}
+
+/// Parse a syslog mask value into a tracing level filter string.
+///
+/// Supports:
+/// - `LOG_UPTO(LOG_<LEVEL>)` — log everything up to and including `<LEVEL>`
+/// - Numeric bitmask (0–255)
+fn parse_syslog_mask_to_tracing_level(val: &str) -> String {
+    // LOG_UPTO(LOG_<LEVEL>) format
+    if let Some(level_str) = val
+        .strip_prefix("LOG_UPTO")
+        .and_then(|s| s.trim().strip_prefix('('))
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        let level = level_str
+            .trim()
+            .strip_prefix("LOG_")
+            .unwrap_or(level_str.trim());
+        return match level.to_uppercase().as_str() {
+            "EMERG" | "ALERT" | "CRIT" | "ERR" => "error".to_string(),
+            "WARNING" => "warn".to_string(),
+            "NOTICE" | "INFO" => "info".to_string(),
+            "DEBUG" => "debug".to_string(),
+            _ => {
+                tracing::warn!(
+                    "Unknown syslog level in SyslogMask: {level_str}, defaulting to info"
+                );
+                "info".to_string()
+            }
+        };
+    }
+
+    // Numeric bitmask: bit 6 = LOG_INFO, bit 4 = LOG_WARNING, bit 7 = LOG_DEBUG
+    if let Ok(mask) = val.parse::<u8>() {
+        if mask & (1 << 7) != 0 {
+            return "debug".to_string();
+        } else if mask & (1 << 6) != 0 {
+            return "info".to_string();
+        } else if mask & (1 << 4) != 0 {
+            return "warn".to_string();
+        } else {
+            return "error".to_string();
+        }
+    }
+
+    tracing::warn!("Cannot parse SyslogMask value '{val}', defaulting to info");
+    "info".to_string()
+}
+
 #[derive(Parser)]
 #[command(name = "dcud", about = "HSM DCU Wi-SUN FAN Border Router")]
 struct Args {
@@ -25,9 +95,17 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
+
+    // Pre-parse SyslogMask from config to set tracing level before full init.
+    let log_level = pre_parse_syslog_mask(&args.config_path);
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level)),
+        )
+        .init();
+
     let config = Config::load(&args.config_path)?;
 
     // Apply daemon lifecycle (PID file, chroot, priv-drop) after all
