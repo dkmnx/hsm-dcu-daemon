@@ -3,7 +3,7 @@
 //! Covers only what the daemon needs at this layer: detecting an IPv6
 //! packet and parsing the fixed 40-byte IPv6 header. The heavier
 //! `IPv6PacketMatcher` firewall logic from `src/util/IPv6PacketMatcher.cpp`
-//! is deferred to phase 3A.
+//! is handled by the async daemon.
 
 use std::net::Ipv6Addr;
 

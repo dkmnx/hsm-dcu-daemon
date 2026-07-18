@@ -265,11 +265,11 @@ pub struct NcpInstanceBase {
     /// dropped sender).
     scan_collector: Arc<RwLock<Option<mpsc::UnboundedSender<SpinelFrame>>>>,
 
-    /// Active operational dataset (phase 3C). Updated from
+    /// Active operational dataset. Updated from
     /// `PROP_THREAD_ACTIVE_DATASET` Spinel frames.
     active_dataset: Arc<RwLock<crate::dataset::OperationalDataset>>,
 
-    /// Pending operational dataset (phase 3C). Updated from
+    /// Pending operational dataset. Updated from
     /// `PROP_THREAD_PENDING_DATASET` Spinel frames.
     pending_dataset: Arc<RwLock<crate::dataset::OperationalDataset>>,
 

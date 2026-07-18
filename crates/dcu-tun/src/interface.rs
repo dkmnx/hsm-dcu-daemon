@@ -5,8 +5,8 @@
 //! packet read/write over the TUN fd.
 //!
 //! Netlink address/link-state subscription and the MLD listener from the C
-//! source are event-loop concerns and live in the async daemon (phase 3A),
-//! not in this transport crate.
+//! source are event-loop concerns and live in the async daemon, not in this
+//! transport crate.
 
 use std::net::Ipv6Addr;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};

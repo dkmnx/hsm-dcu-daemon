@@ -7,9 +7,8 @@ use wisun_types::{Eui64, Ipv6Address, NetworkName, PanId, WpanError};
 
 /// D-Bus variant value.
 ///
-/// The original `phase-2A` spec wrote `Variant` throughout, but the real
-/// zbus type is `zbus::zvariant::Value`. We alias it here so the rest of the
-/// crate reads naturally and matches the spec's intent.
+/// The real zbus type for a D-Bus variant value is `zbus::zvariant::Value`.
+/// We alias it here so the rest of the crate reads naturally.
 pub type Variant = zbus::zvariant::Value<'static>;
 
 /// Owned variant, used when a value must outlive its message frame
@@ -109,7 +108,7 @@ pub struct DaemonState {
     pub interface_up: bool,
     pub stack_up: bool,
 
-    // --- Operational dataset (phase 3C) ---
+    // --- Operational dataset ---
     /// Stringified `Dataset:*` values, refreshed from the NCP's operational
     /// dataset when it arrives. Keyed by D-Bus property key string.
     pub dataset: std::collections::HashMap<String, String>,

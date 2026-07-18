@@ -608,7 +608,7 @@ pub fn prop_value_is(prop: u32, payload: Vec<u8>) -> SpinelFrame {
 }
 
 // ---------------------------------------------------------------------------
-// Unprefixed aliases (phase 3C)
+// Unprefixed aliases
 // ---------------------------------------------------------------------------
 //
 // The porting docs reference the dataset/NET constants without the `PROP_`

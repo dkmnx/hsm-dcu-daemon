@@ -313,7 +313,7 @@ pub fn remove_ipv6_route(
 ///
 /// Uses `getifaddrs` (safe) rather than netlink; this is the polling
 /// equivalent of the C netlink `RTM_NEWADDR`/`RTM_DELADDR` listener, which
-/// lives in the async daemon (phase 3A), not here.
+/// lives in the async daemon, not here.
 pub fn list_ipv6_addresses(name: &str) -> Result<Vec<Ipv6Net>, TunError> {
     let mut out = Vec::new();
     for ifaddr in nix::ifaddrs::getifaddrs()? {

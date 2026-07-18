@@ -5,11 +5,11 @@
 //! implementation. Replaces `src/ipc-dbus/*` and the D-Bus portions of
 //! `src/dcuctl/wpanctl-utils.c`.
 //!
-//! See `doc/rust-porting/phase-2A-dcu-dbus.md` for the porting spec. This
-//! crate contains the corrections noted during review: a real zvariant
-//! `Variant` alias, a `DaemonState` distinct from `wisun_types::NcpState`,
-//! a `WpanInterface` that actually holds the command channel, and a single
-//! `emit_prop_changed` emitter (the spec's duplicate was removed).
+//! D-Bus API server for the DCU tunnel daemon. This crate contains the
+//! corrections noted during review: a real zvariant `Variant` alias, a
+//! `DaemonState` distinct from `wisun_types::NcpState`, a `WpanInterface`
+//! that actually holds the command channel, and a single `emit_prop_changed`
+//! emitter (the spec's duplicate was removed).
 
 pub mod base_interface;
 pub mod commands;

@@ -1,4 +1,4 @@
-//! Operational dataset codec (phase 3C).
+//! Operational dataset codec.
 //!
 //! Ports `SpinelNCPThreadDataset` (C++ `ThreadDataset`) to idiomatic Rust.
 //! Fields are `Option<T>` because only set fields travel in the Spinel frame;

@@ -40,8 +40,8 @@ impl Default for TunConfig {
 }
 
 impl TunConfig {
-    /// Whether this configuration is usable. The MTU bounds are taken from
-    /// the phase-1C spec Test 4 (valid: 1200, 1280; invalid: 64, 65535).
+    /// Whether this configuration is usable. The MTU bounds are constrained
+    /// to the valid range (valid: 1200, 1280; invalid: 64, 65535).
     pub fn is_valid(&self) -> bool {
         (1200..=1280).contains(&self.mtu)
     }

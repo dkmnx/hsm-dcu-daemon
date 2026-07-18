@@ -2,7 +2,7 @@
 //!
 //! Reimplements the PTY pair used by the C `SpinelNCPInstance` test harness.
 //! The slave end connects to the daemon as if it were a real serial port;
-//! the master end is driven by the mock NCP (phase 4A).
+//! the master end is driven by the mock NCP.
 
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
@@ -84,7 +84,7 @@ impl AsyncRead for PtyTransport {
         _buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         // Stub: portable-pty does not expose async I/O natively.
-        // Phase 4A mock NCP should use a raw PTY fd with AsyncFd.
+        // The mock NCP should use a raw PTY fd with AsyncFd.
         Poll::Pending
     }
 }

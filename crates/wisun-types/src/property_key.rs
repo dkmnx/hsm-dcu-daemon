@@ -174,7 +174,7 @@ declare_property_keys![
     (PROP_THREAD_PENDING_DATASET, "Thread:PendingDataset"),
     (PROP_THREAD_ON_MESH_PREFIXES, "Thread:OnMeshPrefixes"),
     (PROP_THREAD_OFF_MESH_ROUTES, "Thread:OffMeshRoutes"),
-    // --- Dataset (operational dataset, phase 3C) ---
+    // --- Dataset (operational dataset) ---
     (PROP_DATASET_ACTIVE_TIMESTAMP, "Dataset:ActiveTimestamp"),
     (PROP_DATASET_PENDING_TIMESTAMP, "Dataset:PendingTimestamp"),
     (PROP_DATASET_MASTER_KEY, "Dataset:MasterKey"),

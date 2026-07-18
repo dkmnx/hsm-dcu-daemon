@@ -6,7 +6,7 @@
 //! * [`UartTransport`] — serial port via `tokio-serial`.
 //! * [`TcpTransport`] — TCP socket via `tokio::net::TcpStream`.
 //! * [`UnixSocketTransport`] — Unix domain socket via `tokio::net::UnixStream`.
-//! * [`PtyTransport`] — PTY (for mock NCP testing, see phase 4A).
+//! * [`PtyTransport`] — PTY (for mock NCP testing).
 
 pub mod dispatch;
 pub mod error;

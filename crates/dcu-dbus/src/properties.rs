@@ -78,7 +78,7 @@ pub fn get_property_locked(name: &str, state: &DaemonState) -> Result<Variant, D
         "Interface:Up" => Value::from(state.interface_up),
         "Stack:Up" => Value::from(state.stack_up),
 
-        // --- Operational dataset (phase 3C) ---
+        // --- Operational dataset ---
         "Dataset:AllFields" | "Dataset" => Value::from(
             [
                 wisun_types::PROP_DATASET_ACTIVE_TIMESTAMP,
@@ -342,7 +342,7 @@ pub fn all_property_keys() -> &'static [&'static str] {
         "Daemon:Version",
         "Daemon:Enabled",
         "Daemon:ReadyForHostSleep",
-        // --- Operational dataset (phase 3C) ---
+        // --- Operational dataset ---
         // Composite keys are always gettable (they render from the dataset
         // map, which is empty by default). Individual `Dataset:*` fields are
         // served only when present in the dataset map (populated by the NCP),

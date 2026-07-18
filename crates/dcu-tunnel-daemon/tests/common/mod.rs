@@ -1,4 +1,4 @@
-//! Shared test infrastructure for phase-4B integration tests.
+//! Shared test infrastructure for integration tests.
 //!
 //! [`TestDaemon`] spins up a mock NCP, an `NcpInstance`, and wires them
 //! together over an in-memory `DuplexTransport`. Tests send commands via

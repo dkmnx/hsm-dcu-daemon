@@ -1,7 +1,7 @@
 //! Command dispatch between the D-Bus interface and the daemon core.
 //!
 //! Each D-Bus method that mutates NCP/network state produces a `Command`
-//! that is sent over an `mpsc` channel to the daemon task (Phase 2C+/3).
+//! that is sent over an `mpsc` channel to the daemon task.
 //! This crate only *produces* these commands; it does not execute them.
 //!
 //! NOTE: This is distinct from `wisun_types::command` (Spinel protocol
