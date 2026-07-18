@@ -123,7 +123,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | Target                 | Drop-in today?                   | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ---------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **wfanctl → dcuctl**   | **Yes** (CLI surface)            | All 9 registered C commands ported. Same D-Bus client contract. Rename/package only (see P1-9). **Runtime unblocked after P0-1/P0-2 closed** — now works against a `dcutund` on the system bus.                                                                                                                                                                                                                                                                                               |
-| **wfantund → dcutund** | **Partial** (Milestones A+B+C+D) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, address/prefix/route manager, NetworkRetain, Pcap, lifecycle (pid/chroot/privdrop), GPIO, AutoAssociateAfterReset, full 45/45 D-Bus method surface, and the `NetworkTimeUpdate` signal. Remaining gaps: property inventory (~40 registered handlers vs 321 C defines, P1-7) and hardware acceptance (Milestone F). |
+| **wfantund → dcutund** | **Partial** (Milestones A+B+C+D) | Core Spinel/D-Bus/task stack exists and mock-e2e passes. System bus, base object, TUN data path, address/prefix/route manager, NetworkRetain, Pcap, lifecycle (pid/chroot/privdrop), GPIO, AutoAssociateAfterReset, full 45/45 D-Bus method surface, and the `NetworkTimeUpdate` signal. Remaining gaps: property inventory (47/69 C daemon handlers registered, ~30 production keys pending firmware inventory, P1-7) and hardware acceptance (Milestone F). |
 
 ### Headline blockers for T1 field drop-in (P0)
 
@@ -145,7 +145,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | **P1-4**  | PID file, priv-drop, chroot               | `wpantund.cpp`                                                                              | **Closed** (commit c8f0a10). `lifecycle.rs`: PID via `unlinkat(dirfd)`, `getpwnam_r`, `setgroups` before `setgid`.                                       |
 | **P1-5**  | Hard-reset / power GPIO paths             | config keys                                                                                 | **Closed** (commit c8f0a10). `ncp_gpio::hard_reset()` wired into reset path (`base.rs:1513`).                                                            |
 | **P1-6**  | AutoAssociateAfterReset                   | config flag                                                                                 | **Closed** (commit c8f0a10). Sends `PROP_NET_STACK_UP=1` on `Initializing→Offline` (`base.rs:1386`).                                                     |
-| **P1-7**  | Property surface vs production set        | `wpan-properties.h` (**321** defines) vs **~40** Rust registered handlers + 126 key strings | **Partial.** 7 daemon config + NCP properties registered (47/69 C handlers). Remaining ~30 need firmware inventory.                                                                                  |
+| **P1-7**  | Property surface vs production set        | `wpan-properties.h` (**321** defines); **69** C daemon handlers, **47** registered in Rust | **Partial.** 7 daemon config + NCP properties registered (47/69 C daemon handlers). Remaining ~30 need firmware inventory.                                                                                  |
 | **P1-8**  | `NetworkTimeUpdate` signal                | C connects `mOnNetworkTimeUpdate`                                                           | **Closed** (commit 6561ef4). `signals::emit_network_time_update` wired in `main.rs`; `base.rs` decodes `PROP_THREAD_NETWORK_TIME` into the emit channel. |
 | **P1-9**  | Binary / packaging names                  | Makefile vs Cargo                                                                           | **Closed** (6d1f72d). Symlink install script present.                                                                                                    |
 | **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                   | **Partial.** CCA threshold + TX power + TerminateOnFault + system-socketpair closed; 2 config keys + fd: remain.                                         |
@@ -473,8 +473,8 @@ AutoAssociate; deferred).
 
 |                        | C                                                                                                        | Rust                                                                                                                                                                     |
 | ---------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Named property defines | **321** in `wpan-properties.h` (verified 2026-07-14)                                                     | **126** key strings in `wisun-types/property_key.rs` + **~40** registered handlers in `instance/property_handlers.rs`                                                    |
-| Spinel handler map     | large switch tables in SpinelNCPInstance                                                                 | ~40 entries in `property_handlers.rs` (NCP-forwarded) + daemon-local keys in `base.rs` (IPv6:AllAddresses, IPv6:Routes, Thread:OnMeshPrefixes, OffMeshRoutes, Dataset:*) |
+| Named property defines | **321** in `wpan-properties.h` (verified 2026-07-14)                                                     | **126** key strings in `wisun-types/property_key.rs` + **47** registered handlers in `instance/property_handlers.rs` (of **69** C daemon-side handlers)                                                    |
+| Spinel handler map     | large switch tables in SpinelNCPInstance                                                                 | 47 entries in `property_handlers.rs` (NCP-forwarded) + daemon-local keys in `base.rs` (IPv6:AllAddresses, IPv6:Routes, Thread:OnMeshPrefixes, OffMeshRoutes, Dataset:*) |
 
 **Important:** Not every C key is active on TI Wi-SUN firmware. The 321
 includes Thread-era properties not used by TI. Parity requires:
@@ -483,7 +483,7 @@ includes Thread-era properties not used by TI. Parity requires:
 2. Implement daemon-local vs NCP-forwarded handlers for that set.
 3. Golden-test string formatting against C (`variant_to_string` parity).
 
-**Current status:** ~40 registered handlers cover the core TI Wi-SUN
+**Current status:** 47 registered handlers cover the core TI Wi-SUN
 NCP/Network/PHY/MAC-timing properties. Unknown keys fail with
 `"unknown property"` (not passthrough). The gap is real but narrower than
 321→40 once Thread-only keys are excluded.
@@ -539,8 +539,9 @@ All four `system:*` and `fd:` implementations live in `dcu-serial/src/system.rs`
 | 4A–4B | Done                        | Mock + 4 integration tests                                | OK; not hardware acceptance                                      |
 
 This file supersedes earlier contradictory drafts that claimed “all
-P0/P1 resolved.” **Milestones A+B+C+D are all done; only P1-1 (StatCollector)
-and P1-7 (property inventory) plus hardware acceptance (Milestone F) remain.**
+P0/P1 resolved.” **Milestones A+B+C+D+E(P1-1) are all done; remaining
+open items are P1-7 (property inventory), P1-10 (config gaps + dcu-serial
+transports), and hardware acceptance (Milestone F).**
 
 ---
 
@@ -586,12 +587,13 @@ before the next.
 4. ~~`NetworkTimeUpdate` signal.~~ ✅ (commit 6561ef4).
 5. **Acceptance:** method-for-method matrix vs `wpan-dbus.h` — **45/45 registered AND implemented**.
 
-### Milestone E — Observability + property parity (P1-1, P1-7)
+### Milestone E — Observability + property parity (P1-1 done, P1-7 + P1-10 open)
 
-1. StatCollector + `Stat:*` properties.
-2. Close property inventory gaps for TI Wi-SUN production keys.
-3. Golden tests: C vs Rust `status` / `get` string formatting.
-4. **Acceptance:** README success criteria 1–2 (character-level where
+1. ~~StatCollector + `Stat:*` properties.~~ ✅ (closed: `instance/stat_collector.rs`, 11 unit tests, wired via `handle_stat_property` / `Command::GetProperty`)
+2. Close property inventory gaps for TI Wi-SUN production keys (P1-7).
+3. Close remaining config gaps + verify `dcu-serial` transports (P1-10): `Config:Daemon:SyslogMask` / `Config:IPv6:WPANTundGlobalAddress` applied or documented-deviation; `fd:` transport exercised.
+4. Golden tests: C vs Rust `status` / `get` string formatting.
+5. **Acceptance:** README success criteria 1–2 (character-level where
    C is deterministic).
 
 ### Milestone F — Production sign-off
@@ -609,9 +611,10 @@ before the next.
 - [ ] Same config keys applied (not only parsed) — **P1-7 partial**
 - [x] TUN + address/route parity for border-router operation
 - [x] NetworkRetain + reset/auto-associate behavior
-- [ ] Stat + Pcap when enabled in C — **Pcap done, StatCollector missing**
-- [ ] Property get/set/status parity on target firmware key set — **~40/321 handlers**
-- [ ] Installable under `wfantund` / `wfanctl` names — **P1-9 done but checkbox kept for packaging verification**
+- [x] Stat + Pcap when enabled in C — **Pcap (P1-2) done, StatCollector (P1-1) done**
+- [ ] Property get/set/status parity on target firmware key set — **47/69 C daemon handlers registered; ~30 production keys pending firmware inventory (of 321 `wpan-properties.h` defines)**
+- [ ] Remaining config keys applied + `dcu-serial` transports verified — **P1-10 partial** (`SyslogMask` / `WPANTundGlobalAddress` parsed-only; `fd:` unexercised)
+- [x] Installable under `wfantund` / `wfanctl` names — **P1-9 done** (symlink install script, commit 6d1f72d); checkbox closed.
 - [ ] Hardware acceptance checklist signed off
 
 ---
@@ -699,9 +702,9 @@ in Rust (see **Logical port** above).
 | Direct line-for-line C++ port?                       | **No** — **logical port**: idiomatic Rust re-implementation of external behavior.                                                                                                      |
 | Are the phase crates scaffolded?                     | **Yes** — 1A through 4B code exists and unit/mock tests pass.                                                                                                                          |
 | Is **wfanctl** replaceable by **dcuctl**?            | **Yes** at the registered CLI surface; **runtime** needs daemon P0-1/P0-2.                                                                                                             |
-| Is **wfantund** replaceable by **dcutund** today?    | **Partial.** T1 data plane + lifecycle + full D-Bus surface + `NetworkTimeUpdate` done; remaining: StatCollector (P1-1), property inventory (P1-7), hardware acceptance (Milestone F). |
+| Is **wfantund** replaceable by **dcutund** today?    | **Partial.** T1 data plane + lifecycle + full D-Bus surface + `NetworkTimeUpdate` + StatCollector (P1-1) done; remaining: property inventory (P1-7), hardware acceptance (Milestone F). |
 | What is required for **T1 field drop-in**?           | **P0-1…P0-5** ✅ + **P1-9** ✅. Data plane + lifecycle done. Remaining: property handler coverage (P1-7) for client parity.                                                              |
-| What is required for **T2 behavioral completeness**? | T1 + P1-1 (StatCollector), P1-7 (property inventory), P1-10 (config gaps + dcu-serial transports), Milestone F (hardware). (P1-3 + P1-8 now closed.)                                   |
+| What is required for **T2 behavioral completeness**? | T1 + P1-7 (property inventory), P1-10 (config gaps + dcu-serial transports), Milestone F (hardware). (P1-1 + P1-3 + P1-8 now closed.)                                   |
 
 Use **§4 Roadmap** as the implementation backlog. Update this file when a
 P0/P1 item is closed (status + commit hash), not when a crate merely
@@ -709,7 +712,7 @@ exists on disk.
 
 ---
 
-## 8. Implementation log (Milestones A+B+C — P0-1..P0-5, P1-2..P1-6, P1-9)
+## 8. Implementation log (Milestones A+B+C+D+E — P0-1..P0-5, P1-1..P1-9)
 
 | Date       | Item                                          | Commit     | What changed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------- | --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -724,7 +727,7 @@ exists on disk.
 
 **Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after both milestones.
 
-**Still open (post-D):** P1-1 (StatCollector), P1-7 (property inventory — ~40/321 handlers), Milestone F (hardware acceptance).
+**Still open (post-D):** P1-7 (property inventory — 47/69 C daemon handlers registered, ~30 production keys pending firmware inventory), P1-10 (config gaps + dcu-serial transports), Milestone F (hardware acceptance).
 
 ---
 
@@ -742,7 +745,7 @@ Claims re-checked after Milestone C closure (uncommitted diff at the time):
 | No address manager                           | **Confirmed**                                                                                            | —                                                      |
 | No NetworkRetain runtime                     | **Closed** — `network_retain.rs` now handles Recall/Erase                                                | Updated §2.2 P0-5                                      |
 | Missing D-Bus methods                        | **Closed** — 45/45 registered; 7 stubs **now implemented** (6561ef4)                                     | Updated §2.3 method matrix                             |
-| ~325 vs ~40 properties                       | **Confirmed** — actual count is 321 `kWPANTUNDProperty_*` defines (the original ~325 estimate was close) | Updated P1-7 table; Rust has ~40 registered handlers   |
+| ~325 vs ~40 properties                       | **Confirmed** — actual count is 321 `kWPANTUNDProperty_*` defines (the original ~325 estimate was close) | Updated P1-7 table; Rust has 47 registered handlers (of 69 C daemon-side handlers)   |
 | PropGet string vs variant                    | **Real wire difference**                                                                                 | Documented as intentional deviation                    |
 | No lifecycle (pid/chroot/privdrop)           | **Closed** — `lifecycle.rs` with `unlinkat(dirfd)` + `getpwnam_r`                                        | Updated §2.2 P1-4                                      |
 | No GPIO write                                | **Closed** — `ncp_gpio::hard_reset()` wired into reset path                                              | Updated §2.2 P1-5                                      |
@@ -764,11 +767,12 @@ shows these were committed before this re-verification:
 
 **Honest answer to "is this ready for the implementor?"**
 
-- **Yes** for prioritization, ownership of gaps, and starting **Milestones A+B+C+D**
-  (P0-1 through P0-5, P1-2 through P1-9 — all closed).
-- **No** for Milestone E (property inventory + StatCollector, P1-1) — needs live TI firmware
-  inventory before expanding the handler map.
-- **Deferred / non-blocking:** `dcu-serial` `system:`/`fd:`
-  transports (not yet implemented), `IPv6PacketMatcher` not on the live path.
+- **Yes** for prioritization, ownership of gaps, and starting **Milestones A+B+C+D+E(partial)**
+  (P0-1 through P0-5, P1-1 through P1-9 — all closed).
+- **No** for Milestone E completion (property inventory, P1-7 + P1-10) — needs live TI firmware
+   inventory before expanding the handler map. (StatCollector / P1-1 is already
+   closed.)
+- **Deferred / non-blocking:** `dcu-serial` `fd:` transport is implemented but unexercised
+   (see P1-10); `IPv6PacketMatcher` not on the live path (forward-all passthrough).
 - **Do not** treat "100% of C" as "implement 321 properties and every
   Thread link-metrics path on day one" without product prioritization.
