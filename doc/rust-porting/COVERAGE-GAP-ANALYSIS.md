@@ -148,7 +148,7 @@ this doc + `DBUSIPCServer.cpp` alone.
 | **P1-7**  | Property surface vs production set        | `wpan-properties.h` (**321** defines); **69** C daemon handlers, **41** NCP-forwarded registered in Rust | **Partial.** 41 NCP-forwarded handlers (16 RO / 25 RW) + daemon-local keys registered (d5fc10a). Remaining ~30 production keys need firmware inventory.                                              |
 | **P1-8**  | `NetworkTimeUpdate` signal                | C connects `mOnNetworkTimeUpdate`                                                                        | **Closed** (commit 6561ef4). `signals::emit_network_time_update` wired in `main.rs`; `base.rs` decodes `PROP_THREAD_NETWORK_TIME` into the emit channel.                                             |
 | **P1-9**  | Binary / packaging names                  | Makefile vs Cargo                                                                                        | **Closed** (6d1f72d). Symlink install script present.                                                                                                                                                |
-| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                                | **Nearly closed.** CCA threshold, TX power, TerminateOnFault, AutoDeepSleep, system-socketpair, SyslogMask (a071ea6) + WPANTundGlobalAddress (e20ccab) closed; only fd: end-to-end exercise remains. |
+| **P1-10** | Minor config gaps + dcu-serial transports | See §2.3 config gap table                                                                                | **Closed.** CCA threshold, TX power, TerminateOnFault, AutoDeepSleep, system-socketpair, SyslogMask (a071ea6), WPANTundGlobalAddress (e20ccab) closed; fd: transport exercised end-to-end (f03a214). |
 
 > **Note:** All transports are now implemented: `system:` (PTY), `system-forkpty:` (PTY),
 > `system-socketpair:` (socketpair), and `fd:` (raw descriptor). See `dcu-serial/src/system.rs`.
@@ -522,7 +522,7 @@ genuine behavioral differences from the C daemon.
 
 The `dcu-serial` crate supports all transport types: UART, TCP, `system:`
 (PTY), `system-forkpty:` (PTY), `system-socketpair:` (socketpair), and
-`fd:` (raw descriptor). No transport stubs remain.
+`fd:` (raw descriptor). No transport stubs remain. The `fd:` transport is exercised end-to-end by `dcu-serial/tests/fd_transport.rs` (f03a214).
 
 All four `system:*` and `fd:` implementations live in `dcu-serial/src/system.rs`.
 
@@ -539,9 +539,9 @@ All four `system:*` and `fd:` implementations live in `dcu-serial/src/system.rs`
 | 4A–4B | Done                        | Mock + 4 integration tests                                | OK; not hardware acceptance                                      |
 
 This file supersedes earlier contradictory drafts that claimed “all
-P0/P1 resolved.” **Milestones A+B+C+D+E(P1-1 + P1-10 config keys) are all done; remaining
-open items are P1-7 (property inventory), P1-10 (only `fd:` end-to-end
-exercise), and hardware acceptance (Milestone F).**
+P0/P1 resolved.” **Milestones A+B+C+D+E (P1-1 + P1-10 fully closed) are all done; remaining
+open items are P1-7 (property inventory) and hardware acceptance
+(Milestone F). P1-10 is fully closed (fd: transport exercised, f03a214).**
 
 ---
 
@@ -587,11 +587,11 @@ before the next.
 4. ~~`NetworkTimeUpdate` signal.~~ ✅ (commit 6561ef4).
 5. **Acceptance:** method-for-method matrix vs `wpan-dbus.h` — **45/45 registered AND implemented**.
 
-### Milestone E — Observability + property parity (P1-1 done, P1-7 + P1-10 open)
+### Milestone E — Observability + property parity (P1-1 + P1-10 done, P1-7 open)
 
 1. ~~StatCollector + `Stat:*` properties.~~ ✅ (closed: `instance/stat_collector.rs`, 11 unit tests, wired via `handle_stat_property` / `Command::GetProperty`)
 2. Close property inventory gaps for TI Wi-SUN production keys (P1-7).
-3. ~~Close remaining config gaps~~ (P1-10): `Config:Daemon:SyslogMask` (a071ea6) + `Config:IPv6:WPANTundGlobalAddress` (e20ccab) now applied; only `fd:` transport end-to-end exercise remains.
+3. ~~Close remaining config gaps + verify transports~~ (P1-10) **DONE**: `Config:Daemon:SyslogMask` (a071ea6) + `Config:IPv6:WPANTundGlobalAddress` (e20ccab) applied; `fd:` transport exercised end-to-end (f03a214).
 4. Golden tests: C vs Rust `status` / `get` string formatting.
 5. **Acceptance:** README success criteria 1–2 (character-level where
    C is deterministic).
@@ -613,7 +613,7 @@ before the next.
 - [x] NetworkRetain + reset/auto-associate behavior
 - [x] Stat + Pcap when enabled in C — **Pcap (P1-2) done, StatCollector (P1-1) done**
 - [ ] Property get/set/status parity on target firmware key set — **41 NCP-forwarded handlers registered (d5fc10a); ~30 production keys pending firmware inventory (of 321 `wpan-properties.h` defines)**
-- [ ] Remaining config keys applied + `dcu-serial` transports verified — **P1-10 nearly closed** (`SyslogMask` a071ea6 / `WPANTundGlobalAddress` e20ccab now applied; only `fd:` end-to-end unexercised)
+- [x] Remaining config keys applied + `dcu-serial` transports verified — **P1-10 closed** (`SyslogMask` a071ea6 / `WPANTundGlobalAddress` e20ccab applied; `fd:` transport exercised end-to-end, f03a214)
 - [x] Installable under `wfantund` / `wfanctl` names — **P1-9 done** (symlink install script, commit 6d1f72d); checkbox closed.
 - [ ] Hardware acceptance checklist signed off
 
@@ -704,7 +704,7 @@ in Rust (see **Logical port** above).
 | Is **wfanctl** replaceable by **dcuctl**?            | **Yes** at the registered CLI surface; **runtime** needs daemon P0-1/P0-2.                                                                                                              |
 | Is **wfantund** replaceable by **dcutund** today?    | **Partial.** T1 data plane + lifecycle + full D-Bus surface + `NetworkTimeUpdate` + StatCollector (P1-1) done; remaining: property inventory (P1-7), hardware acceptance (Milestone F). |
 | What is required for **T1 field drop-in**?           | **P0-1…P0-5** ✅ + **P1-9** ✅. Data plane + lifecycle done. Remaining: property handler coverage (P1-7) for client parity.                                                               |
-| What is required for **T2 behavioral completeness**? | T1 + P1-7 (property inventory), P1-10 (only fd: end-to-end), Milestone F (hardware). (P1-1 + P1-3 + P1-8 + P1-10 config keys now closed.)                                               |
+| What is required for **T2 behavioral completeness**? | T1 + P1-7 (property inventory), Milestone F (hardware). (P1-1 + P1-3 + P1-8 + P1-10 fully closed — fd: exercised f03a214.)                                                              |
 
 Use **§4 Roadmap** as the implementation backlog. Update this file when a
 P0/P1 item is closed (status + commit hash), not when a crate merely
@@ -730,10 +730,11 @@ exists on disk.
 | 2026-07-17 | **P1-10** SyslogMask                          | a071ea6    | `Config:Daemon:SyslogMask` mapped to the `tracing` filter level (`main.rs:23-46`, `base.rs:1972`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 2026-07-17 | **P1-7** daemon config + NCP handlers         | d5fc10a    | `instance/property_handlers.rs` expanded to 41 NCP-forwarded handlers (16 ReadOnly / 25 ReadWrite) bridging D-Bus keys → Spinel prop IDs; daemon config keys registered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 2026-07-18 | **Docs** reconcile P1-1/P1-7/P1-10            | c4908e9    | Reconciled earlier COVERAGE-GAP-ANALYSIS inconsistencies for P1-1/P1-7/P1-10.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2026-07-21 | **P1-10** fd: transport exercised             | f03a214    | New `dcu-serial/tests/fd_transport.rs`: drives `open_transport("fd:N")` over a real socketpair, round-trips bytes both directions, proves the `dup()` ownership, and covers the non-numeric / closed-fd error paths. P1-10 fully closed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-**Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (235 tests) all pass after Milestones C+D+E-partial; `dcu-tunnel-daemon` build re-verified clean 2026-07-18.
+**Verification:** `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` all pass after Milestones C+D+E (fd: transport now exercised, f03a214).
 
-**Still open (post-E-partial):** P1-7 (property inventory — 41 NCP-forwarded handlers registered, ~30 production keys pending firmware inventory), P1-10 (only `fd:` end-to-end exercise remains), Milestone F (hardware acceptance).
+**Still open (post-E):** P1-7 (property inventory — 41 NCP-forwarded handlers registered, ~30 production keys pending firmware inventory), Milestone F (hardware acceptance). P1-10 fully closed (fd: transport exercised end-to-end, f03a214).
 
 ---
 
@@ -783,14 +784,28 @@ Re-verified against committed code (29ea7e7, 1019c20, e20ccab, a071ea6, d5fc10a)
 | "47 registered handlers" in `property_handlers.rs` | **Corrected → 41** NCP-forwarded handlers (16 ReadOnly / 25 ReadWrite), expanded in d5fc10a | Updated P1-7 table + exec summary + DoD  |
 | P1-10 "2 config keys remain"                       | **Closed** — only `fd:` end-to-end exercise remains                                         | Updated exec summary + DoD + Milestone E |
 
+### 2026-07-21 (P1-10 fully closed — fd: transport exercised)
+
+The last open P1-10 item (fd: transport "implemented but unexercised") is
+closed by `dcu-serial/tests/fd_transport.rs` (f03a214): the test drives
+`open_transport("fd:N")` over a real Unix socketpair, round-trips bytes in
+both directions, proves the transport owns an independent `dup()`, and covers
+the non-numeric / closed-fd error paths. `cargo test --workspace`, clippy
+(-D warnings), and fmt all pass.
+
+| Claim                                       | Result                                      | Correction applied?                                      |
+| ------------------------------------------- | ------------------------------------------- | -------------------------------------------------------- |
+| fd: transport "implemented but unexercised" | **Closed** — exercised end-to-end (f03a214) | Updated exec summary, §2.3, §3, Milestone E, DoD, §7, §8 |
+| P1-10 "nearly closed / fd: remains"         | **Fully closed**                            | P1-10 marked DONE throughout                             |
+
 **Honest answer to "is this ready for the implementor?"**
 
 - **Yes** for prioritization, ownership of gaps, and starting **Milestones A+B+C+D+E(partial)**
   (P0-1 through P0-5, P1-1 through P1-9 — all closed).
 - **No** for Milestone E completion (property inventory, P1-7) — needs live TI firmware
-   inventory before expanding the handler map. P1-10 config keys are now closed
-   (only `fd:` end-to-end remains); StatCollector / P1-1 is closed.
-- **Deferred / non-blocking:** `dcu-serial` `fd:` transport is implemented but unexercised
-   (see P1-10); `IPv6PacketMatcher` not on the live path (forward-all passthrough).
+   inventory before expanding the handler map. P1-10 is fully closed
+   (config keys + fd: transport exercised, f03a214); StatCollector / P1-1 is closed.
+- **Deferred / non-blocking:** `IPv6PacketMatcher` not on the live path
+   (forward-all passthrough).
 - **Do not** treat "100% of C" as "implement 321 properties and every
   Thread link-metrics path on day one" without product prioritization.
