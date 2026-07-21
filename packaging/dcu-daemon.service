@@ -1,16 +1,38 @@
 [Unit]
 Description=HSM DCU Wi-SUN FAN Border Router Daemon (Rust port)
 Documentation=https://github.com/texasinstruments/wfantund
-After=dbus.service
+# The daemon claims com.nestlabs.WPANTunnelDriver on the system bus, so the
+# bus must be up first. network.target is ordered before us so the TUN
+# interface we create is not raced by late network bring-up.
+After=dbus.service network.target
 Requires=dbus.service
 
 [Service]
 Type=simple
 # Production binary is installed as /usr/sbin/wfantund (symlink to dcutund).
 ExecStart=/usr/sbin/wfantund -c /etc/wpantund.conf
+
+# Ensure the TUN/TAP kernel module is present before the daemon opens wfan0.
+# The leading '-' ignores failure (module may be built-in or modprobe absent).
+ExecStartPre=-/bin/sh -c 'modprobe tun || true'
+
 # The daemon claims com.nestlabs.WPANTunnelDriver on the **system** bus.
 # Allow tests/CI to override the bus via DCU_DBUS_BUS=session.
 Environment=DCU_DBUS_BUS=system
+
+# Runs as root by design: opening the TUN device (CAP_NET_ADMIN ioctls),
+# the NCP serial port, and the GPIO sysfs reset/power paths all require it.
+# Privilege dropping is handled by the daemon itself after setup when
+# Config:Daemon:PrivDropToUser is set in wpantund.conf.
+User=root
+# Helpful if PrivDropToUser is configured later; harmless while running root.
+SupplementaryGroups=dialout gpio
+
+# NOTE: systemd sandboxing (ProtectSystem, PrivateNetwork, CapabilityBoundingSet,
+# NoNewPrivileges, ProtectHome, ...) is intentionally NOT enabled. The daemon
+# needs raw access to /dev/tty*, /dev/net/tun, /sys/class/gpio and the system
+# bus, all of which those directives would break.
+
 Restart=on-failure
 RestartSec=2
 

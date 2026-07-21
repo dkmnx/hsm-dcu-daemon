@@ -1,0 +1,62 @@
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<!--
+  D-Bus system-bus policy for the Rust Wi-SUN FAN border-router daemon
+  (dcutund, installed as wfantund).
+
+  The daemon owns the well-known name `com.nestlabs.WPANTunnelDriver`
+  on the system bus and exposes a single interface of the same name on
+  both the base object (/com/nestlabs/WPANTunnelDriver) and the
+  per-interface object (/com/nestlabs/WPANTunnelDriver/wfan0).
+
+  @WPANTUND_SERVICE_USER@ / @WPANTUND_SERVICE_GROUP@ are substituted by
+  packaging/install.sh (both default to root, matching the C daemon's
+  configure defaults). Install the rendered file to:
+      /etc/dbus-1/system.d/com.nestlabs.WPANTunnelDriver.conf
+-->
+<busconfig>
+    <!-- The daemon process owns the well-known name. -->
+    <policy user="@WPANTUND_SERVICE_USER@">
+        <allow own="com.nestlabs.WPANTunnelDriver"/>
+        <!-- Test/CI instances claim unique suffixed names (see dcu-dbus). -->
+        <allow own_prefix="com.nestlabs.WPANTunnelDriver"/>
+    </policy>
+
+    <!-- Privileged clients (default group: root) may call the daemon. -->
+    <policy group="@WPANTUND_SERVICE_GROUP@">
+        <allow send_destination="com.nestlabs.WPANTunnelDriver"/>
+        <!-- Single Rust interface carrying the full method set. -->
+        <allow send_interface="com.nestlabs.WPANTunnelDriver"/>
+        <!-- Standard interfaces used by dcuctl / introspection tooling. -->
+        <allow send_interface="org.freedesktop.DBus.Properties"/>
+        <allow send_interface="org.freedesktop.DBus.Introspectable"/>
+        <allow send_interface="org.freedesktop.DBus.Peer"/>
+
+        <!-- C-compatible split interfaces (TI webapp was written against
+             these on the C daemon). Allowing the sends at the bus level
+             is harmless even though the Rust daemon routes everything
+             through the single interface above. -->
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Join"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Form"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Leave"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Resume"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Scan"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.PermitJoin"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.Status"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver.List"/>
+    </policy>
+
+    <!-- Interactive console users may talk to the daemon. -->
+    <policy at_console="true">
+        <allow send_destination="com.nestlabs.WPANTunnelDriver"/>
+        <allow send_interface="com.nestlabs.WPANTunnelDriver"/>
+        <allow send_interface="org.freedesktop.DBus.Properties"/>
+        <allow send_interface="org.freedesktop.DBus.Introspectable"/>
+        <allow send_interface="org.freedesktop.DBus.Peer"/>
+    </policy>
+
+    <!-- Everyone else is denied. -->
+    <policy context="default">
+        <deny send_destination="com.nestlabs.WPANTunnelDriver"/>
+    </policy>
+</busconfig>

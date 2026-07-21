@@ -1,0 +1,97 @@
+# wpantund.conf — Rust Wi-SUN FAN border-router daemon (dcutund / wfantund)
+#
+# Annotated starting point for bringing up a TI CC13xx NCP on real hardware.
+# Copy to /etc/wpantund.conf (the installer seeds it for you) and edit every
+# line marked "EDIT ME" to match your board.
+#
+# Key set matches the keys the Rust config parser actually reads. Values may
+# be quoted or unquoted; quotes are shown here for clarity.
+
+# ---------------------------------------------------------------------------
+# TUN network interface
+# ---------------------------------------------------------------------------
+# Name of the IPv6 mesh interface the daemon creates.
+Config:TUN:InterfaceName "wfan0"
+
+# Optional fixed global address for the interface (/64). Leave unset to use
+# the addresses reported by the NCP.
+#IPv6:WfantundGlobalAddress "2020:ABCD::"
+
+# ---------------------------------------------------------------------------
+# NCP transport (how we talk to the CC13xx over Spinel/HDLC)
+# ---------------------------------------------------------------------------
+# EDIT ME: serial/UART device wired to the NCP. Alternatives:
+#   Config:NCP:SocketPath "serial:/dev/ttyO1,raw,b115200,crtscts=1"
+#   Config:NCP:SocketPath "127.0.0.1:4901"                 # TCP
+#   Config:NCP:SocketPath "system:/usr/sbin/spi-hdlc-adapter --stdio \
+#       -i <INT gpio> -r <RES gpio> --spi-speed=1000000 /dev/spidev2.0"
+Config:NCP:SocketPath "/dev/ttyUSB0"
+
+# Baud rate for a plain UART SocketPath (ignored for TCP / system: transports).
+Config:NCP:SocketBaud 115200
+
+# NCP driver. Only "spinel" is supported by this port.
+Config:NCP:DriverName "spinel"
+
+# Reliability layer is normally auto-detected; leave unset unless you know
+# you need to force it.
+#Config:NCP:ReliabilityLayer "libsoot"
+
+# ---------------------------------------------------------------------------
+# NCP reset / power GPIO (sysfs "value" files)
+# ---------------------------------------------------------------------------
+# EDIT ME: path to the RESET GPIO. The daemon writes "0\n" to assert reset
+# and "1\n" to deassert. Export the GPIO first (e.g. via a udev rule or
+# `gpio-export`) so this file exists before the service starts.
+Config:NCP:HardResetPath "/sys/class/gpio/gpio49/value"
+
+# Optional NCP power enable GPIO ("0\n" = power off, "1\n" = power on).
+#Config:NCP:PowerPath "/sys/class/gpio/gpio11/value"
+
+# ---------------------------------------------------------------------------
+# Radio defaults pushed to the NCP on bring-up
+# ---------------------------------------------------------------------------
+# Transmit power in dBm (CC13xx typically tops out around 14 dBm).
+NCP:TXPower 14
+
+# Clear-channel-assessment threshold in dBm.
+NCP:CCAThreshold -70
+
+# ---------------------------------------------------------------------------
+# Daemon behaviour
+# ---------------------------------------------------------------------------
+# Verbose logging while you are bringing up hardware. Tighten to
+# "all -info -debug" once the link is stable.
+Daemon:SyslogMask "all"
+
+# Re-associate automatically after an NCP reset (uses the retained network).
+Config:Daemon:AutoAssociateAfterReset true
+
+# Exit the daemon if the NCP reports a fatal FAULT state (lets systemd
+# restart us cleanly).
+#Config:Daemon:TerminateOnFault true
+
+# Tickle the NCP out of deep sleep after ~70 min.
+#Config:Daemon:AutoDeepSleep true
+
+# PID file (the systemd unit tracks the main process, so this is optional).
+#Config:Daemon:PidFile "/var/run/wpantund.pid"
+
+# Command run to persist/restore network state across NCP resets.
+#Config:Daemon:NetworkRetainCommand "/usr/sbin/wpantund-network-retain"
+
+# ---------------------------------------------------------------------------
+# Privilege separation (leave disabled while debugging hardware)
+# ---------------------------------------------------------------------------
+# Drop to this user after the TUN device, serial port and GPIO are set up.
+# NOTE: the dropped user must be able to write the HardResetPath/PowerPath
+# sysfs files and run NetworkRetainCommand inside any Chroot.
+#Config:Daemon:PrivDropToUser "nobody"
+#Config:Daemon:Chroot "/var/empty"
+
+# ---------------------------------------------------------------------------
+# Automatic firmware update (optional)
+# ---------------------------------------------------------------------------
+#Config:Daemon:AutoFirmwareUpdate true
+#Config:NCP:FirmwareCheckCommand "/usr/sbin/zb-loader --is-update-required /usr/share/ncp-firmware/ip-modem-app.bin"
+#Config:NCP:FirmwareUpgradeCommand "/usr/sbin/zb-loader /dev/ttyUSB0 --app-easyload /usr/share/ncp-firmware/ip-modem-app.bin"
