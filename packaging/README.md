@@ -49,7 +49,7 @@ Edit `/etc/wpantund.conf` for your board (see `wpantund.conf.example`). The
 two settings you must get right:
 
 ```text
-Config:NCP:SocketPath "/dev/ttyUSB0"                 # NCP serial/UART/SPI transport
+Config:NCP:SocketPath "/dev/ttyACM0"                 # NCP serial/UART/SPI transport
 Config:NCP:HardResetPath "/sys/class/gpio/gpio49/value"   # reset GPIO
 ```
 

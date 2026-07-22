@@ -50,7 +50,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            nc_socket_path: "/dev/ttyUSB0".into(),
+            nc_socket_path: "/dev/ttyACM0".into(),
             nc_socket_baud: 115200,
             nc_driver_name: "spinel".into(),
             tun_interface_name: "wfan0".into(),
@@ -262,7 +262,7 @@ Config:NCP:SocketBaud 115200
 "#;
         let config = Config::parse(content).unwrap();
         assert_eq!(config.tun_interface_name, "wfan0");
-        assert_eq!(config.nc_socket_path, "/dev/ttyUSB0");
+        assert_eq!(config.nc_socket_path, "/dev/ttyACM0");
         assert_eq!(config.nc_driver_name, "spinel");
         assert_eq!(config.nc_socket_baud, 115200);
     }
@@ -277,9 +277,9 @@ Config:NCP:SocketBaud 115200
     #[test]
     fn parse_escaped_quotes() {
         // Single-quoted value with embedded single quote via escape
-        let content = r#"Config:NCP:SocketPath "/dev/ttyUSB0""#;
+        let content = r#"Config:NCP:SocketPath "/dev/ttyACM0""#;
         let config = Config::parse(content).unwrap();
-        assert_eq!(config.nc_socket_path, "/dev/ttyUSB0");
+        assert_eq!(config.nc_socket_path, "/dev/ttyACM0");
     }
 
     #[test]
@@ -291,7 +291,7 @@ Config:NCP:SocketBaud 115200
     #[test]
     fn config_defaults_are_sane() {
         let config = Config::default();
-        assert_eq!(config.nc_socket_path, "/dev/ttyUSB0");
+        assert_eq!(config.nc_socket_path, "/dev/ttyACM0");
         assert_eq!(config.nc_socket_baud, 115200);
         assert_eq!(config.tun_interface_name, "wfan0");
         assert!(config.daemon_auto_associate_after_reset);

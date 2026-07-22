@@ -96,7 +96,7 @@ of available configuration parameters, see the [included example][3].
 
     # The pathname of the socket used to communicate
     # with the NCP.
-    Config:NCP:SocketPath         "/dev/ttyUSB0"
+    Config:NCP:SocketPath         "/dev/ttyACM0"
 
     # The name of the driver plugin to use. The chosen
     # plugin must support the NCP you are trying to use.

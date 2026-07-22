@@ -25,7 +25,7 @@ Config:TUN:InterfaceName "wfan0"
 #   Config:NCP:SocketPath "127.0.0.1:4901"                 # TCP
 #   Config:NCP:SocketPath "system:/usr/sbin/spi-hdlc-adapter --stdio \
 #       -i <INT gpio> -r <RES gpio> --spi-speed=1000000 /dev/spidev2.0"
-Config:NCP:SocketPath "/dev/ttyUSB0"
+Config:NCP:SocketPath "/dev/ttyACM0"
 
 # Baud rate for a plain UART SocketPath (ignored for TCP / system: transports).
 Config:NCP:SocketBaud 115200
@@ -94,4 +94,4 @@ Config:Daemon:AutoAssociateAfterReset true
 # ---------------------------------------------------------------------------
 #Config:Daemon:AutoFirmwareUpdate true
 #Config:NCP:FirmwareCheckCommand "/usr/sbin/zb-loader --is-update-required /usr/share/ncp-firmware/ip-modem-app.bin"
-#Config:NCP:FirmwareUpgradeCommand "/usr/sbin/zb-loader /dev/ttyUSB0 --app-easyload /usr/share/ncp-firmware/ip-modem-app.bin"
+#Config:NCP:FirmwareUpgradeCommand "/usr/sbin/zb-loader /dev/ttyACM0 --app-easyload /usr/share/ncp-firmware/ip-modem-app.bin"

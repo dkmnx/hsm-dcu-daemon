@@ -28,11 +28,11 @@ pub struct SerialConfig {
 impl Default for SerialConfig {
     fn default() -> Self {
         Self {
-            path: "/dev/ttyUSB0".into(),
+            path: "/dev/ttyACM0".into(),
             baud_rate: 115200,
             data_bits: 8,
             stop_bits: 1,
-            flow_control: true,
+            flow_control: false,
         }
     }
 }
