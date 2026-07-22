@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod ncp_gpio;
 pub mod network_retain;
 pub mod pcap;
+pub mod pcap_ffi;
 pub mod tasks;
 
 pub use config::Config;

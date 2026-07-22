@@ -85,26 +85,7 @@ impl UartTransport {
             })
             .open_native_async()?;
 
-        // CLOCAL and software-flow flags (IXON/IXOFF/IXANY) are parsed
-        // from path options and stored in `SerialConfig` for API completeness,
-        // but the safe `tokio-serial` API does not expose raw termios flags.
-        // Applying them would require `unsafe` libc calls; skip for now.
-        // tokio-serial applies `cfmakeraw` internally, which sets CLOCAL
-        // and clears IXON/IXOFF/IXANY — matching the C defaults.
-        if !config.clocal {
-            tracing::warn!(
-                "clocal=0 requested but not supported via tokio-serial; \
-                 using CLOCAL (default)"
-            );
-        }
-        if config.ixon || config.ixoff || config.ixany {
-            tracing::warn!(
-                "Software flow control (ixon={}, ixoff={}, ixany={}) \
-                 requested but not supported via tokio-serial; IXON/IXOFF/IXANY \
-                 remain disabled (default)",
-                config.ixon, config.ixoff, config.ixany,
-            );
-        }
+        crate::termios::apply_termios_flags(inner.as_raw_fd(), &config)?;
 
         Ok(Self { inner, config })
     }

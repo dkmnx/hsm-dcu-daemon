@@ -1,5 +1,3 @@
-#![allow(unsafe_code)]
-
 //! System transport: spawn a child process behind a PTY.
 //!
 //! Implements the `system:` and `system-forkpty:` prefixes from
@@ -15,11 +13,10 @@ use std::pin::Pin;
 use std::sync::{LazyLock, Mutex};
 use std::task::{Context, Poll};
 
-use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::pty::openpty;
 use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
-use nix::unistd::{ForkResult, Pid, close, dup2, execvp, fork, setsid};
+use nix::unistd::{ForkResult, Pid, close, execvp, setsid};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -139,16 +136,13 @@ impl SystemTransport {
         let slave_fd = pty.slave.into_raw_fd();
 
         // Fork
-        match unsafe { fork() }.map_err(|e| SerialError::Io(nix_err(e)))? {
+        match crate::system_ffi::fork().map_err(|e| SerialError::Io(nix_err(e)))? {
             ForkResult::Parent { child } => {
                 // Parent: close slave (owned by child now), track child, wrap master
                 let _ = close(slave_fd);
 
                 // Set master to non-blocking
-                let flags =
-                    fcntl(master_fd, FcntlArg::F_GETFL).map_err(|e| SerialError::Io(nix_err(e)))?;
-                let flags = OFlag::from_bits_truncate(flags).union(OFlag::O_NONBLOCK);
-                fcntl(master_fd, FcntlArg::F_SETFL(flags))
+                crate::system_ffi::set_nonblock(master_fd)
                     .map_err(|e| SerialError::Io(nix_err(e)))?;
 
                 // Track the child
@@ -176,14 +170,12 @@ impl SystemTransport {
                 let _ = setsid();
 
                 // Make slave the controlling terminal
-                unsafe {
-                    libc::ioctl(slave_fd, libc::TIOCSCTTY, 0);
-                }
+                crate::system_ffi::tiocsctty(slave_fd);
 
                 // Redirect stdin/stdout/stderr to slave
-                let _ = dup2(slave_fd, libc::STDIN_FILENO);
-                let _ = dup2(slave_fd, libc::STDOUT_FILENO);
-                let _ = dup2(slave_fd, libc::STDERR_FILENO);
+                let _ = crate::system_ffi::dup2_fd(slave_fd, libc::STDIN_FILENO);
+                let _ = crate::system_ffi::dup2_fd(slave_fd, libc::STDOUT_FILENO);
+                let _ = crate::system_ffi::dup2_fd(slave_fd, libc::STDERR_FILENO);
 
                 // Close slave fd if it's > 2 (already redirected)
                 if slave_fd > 2 {
@@ -197,21 +189,17 @@ impl SystemTransport {
                 close_fds_above(libc::STDERR_FILENO);
 
                 // Exec via /bin/sh -c <command>.
-                // Use libc::_exit (not std::process::exit) to avoid running
+                // Use _exit (not std::process::exit) to avoid running
                 // atexit handlers or global Drop in the forked child.
                 let shell = std::ffi::CString::new("/bin/sh").unwrap();
                 let arg_c = std::ffi::CString::new("-c").unwrap();
                 let cmd_c = match std::ffi::CString::new(command) {
                     Ok(c) => c,
-                    Err(_) => unsafe {
-                        libc::_exit(127);
-                    },
+                    Err(_) => crate::system_ffi::exit_raw(127),
                 };
 
                 let _ = execvp(&shell, &[&shell, &arg_c, &cmd_c]);
-                unsafe {
-                    libc::_exit(127);
-                }
+                crate::system_ffi::exit_raw(127);
             }
         }
     }
@@ -240,27 +228,21 @@ impl AsyncRead for SystemTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                let unfilled = buf.initialize_unfilled();
-                libc::read(
-                    guard.get_inner().as_raw_fd(),
-                    unfilled.as_mut_ptr() as *mut libc::c_void,
-                    unfilled.len(),
-                )
-            };
+            let unfilled = buf.initialize_unfilled();
+            let n = crate::system_ffi::read_fd(guard.get_inner().as_raw_fd(), unfilled);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                0 => return Poll::Ready(Ok(())),
-                n => {
-                    buf.advance(n as usize);
+                Ok(0) => return Poll::Ready(Ok(())),
+                Ok(n) => {
+                    buf.advance(n);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -281,24 +263,18 @@ impl AsyncWrite for SystemTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                libc::write(
-                    guard.get_inner().as_raw_fd(),
-                    buf.as_ptr() as *const libc::c_void,
-                    buf.len(),
-                )
-            };
+            let n = crate::system_ffi::write_fd(guard.get_inner().as_raw_fd(), buf);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                n => return Poll::Ready(Ok(n as usize)),
+                Ok(n) => return Poll::Ready(Ok(n)),
             }
         }
     }
@@ -381,24 +357,15 @@ impl SystemSocketpairTransport {
     /// The command is executed via `/bin/sh -c <command>`.
     pub async fn spawn(command: &str) -> Result<Self, SerialError> {
         // Create a Unix socketpair
-        let mut fds = [0i32; 2];
-        let ret =
-            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
-        if ret != 0 {
-            return Err(SerialError::Io(std::io::Error::last_os_error()));
-        }
-        let parent_fd = fds[0];
-        let child_fd = fds[1];
+        let (parent_fd, child_fd) = crate::system_ffi::socketpair_unix()
+            .map_err(|e| SerialError::Io(nix_err(e)))?;
 
-        match unsafe { fork() }.map_err(|e| SerialError::Io(nix_err(e)))? {
+        match crate::system_ffi::fork().map_err(|e| SerialError::Io(nix_err(e)))? {
             ForkResult::Parent { child } => {
                 // Parent: close child end, set non-blocking, wrap
                 let _ = close(child_fd);
 
-                let flags =
-                    fcntl(parent_fd, FcntlArg::F_GETFL).map_err(|e| SerialError::Io(nix_err(e)))?;
-                let flags = OFlag::from_bits_truncate(flags).union(OFlag::O_NONBLOCK);
-                fcntl(parent_fd, FcntlArg::F_SETFL(flags))
+                crate::system_ffi::set_nonblock(parent_fd)
                     .map_err(|e| SerialError::Io(nix_err(e)))?;
 
                 if let Ok(mut table) = CHILD_TABLE.lock() {
@@ -423,9 +390,9 @@ impl SystemSocketpairTransport {
                 // Child: close parent end, redirect stdio, exec
                 let _ = close(parent_fd);
 
-                let _ = dup2(child_fd, libc::STDIN_FILENO);
-                let _ = dup2(child_fd, libc::STDOUT_FILENO);
-                let _ = dup2(child_fd, libc::STDERR_FILENO);
+                let _ = crate::system_ffi::dup2_fd(child_fd, libc::STDIN_FILENO);
+                let _ = crate::system_ffi::dup2_fd(child_fd, libc::STDOUT_FILENO);
+                let _ = crate::system_ffi::dup2_fd(child_fd, libc::STDERR_FILENO);
 
                 if child_fd > 2 {
                     let _ = close(child_fd);
@@ -437,14 +404,10 @@ impl SystemSocketpairTransport {
                 let arg_c = std::ffi::CString::new("-c").unwrap();
                 let cmd_c = match std::ffi::CString::new(command) {
                     Ok(c) => c,
-                    Err(_) => unsafe {
-                        libc::_exit(127);
-                    },
+                    Err(_) => crate::system_ffi::exit_raw(127),
                 };
                 let _ = execvp(&shell, &[&shell, &arg_c, &cmd_c]);
-                unsafe {
-                    libc::_exit(127);
-                }
+                crate::system_ffi::exit_raw(127);
             }
         }
     }
@@ -473,27 +436,21 @@ impl AsyncRead for SystemSocketpairTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                let unfilled = buf.initialize_unfilled();
-                libc::read(
-                    guard.get_inner().as_raw_fd(),
-                    unfilled.as_mut_ptr() as *mut libc::c_void,
-                    unfilled.len(),
-                )
-            };
+            let unfilled = buf.initialize_unfilled();
+            let n = crate::system_ffi::read_fd(guard.get_inner().as_raw_fd(), unfilled);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                0 => return Poll::Ready(Ok(())),
-                n => {
-                    buf.advance(n as usize);
+                Ok(0) => return Poll::Ready(Ok(())),
+                Ok(n) => {
+                    buf.advance(n);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -514,24 +471,18 @@ impl AsyncWrite for SystemSocketpairTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                libc::write(
-                    guard.get_inner().as_raw_fd(),
-                    buf.as_ptr() as *const libc::c_void,
-                    buf.len(),
-                )
-            };
+            let n = crate::system_ffi::write_fd(guard.get_inner().as_raw_fd(), buf);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                n => return Poll::Ready(Ok(n as usize)),
+                Ok(n) => return Poll::Ready(Ok(n)),
             }
         }
     }
@@ -585,14 +536,11 @@ impl FdTransport {
             SerialError::InvalidConfig(format!("fd: invalid descriptor number '{path}': {e}"))
         })?;
 
-        let fd = unsafe { libc::dup(original_fd) };
-        if fd < 0 {
-            return Err(SerialError::Io(std::io::Error::last_os_error()));
-        }
+        let fd = crate::system_ffi::dup_fd(original_fd)
+            .map_err(|e| SerialError::Io(nix_err(e)))?;
 
-        let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(|e| SerialError::Io(nix_err(e)))?;
-        let flags = OFlag::from_bits_truncate(flags).union(OFlag::O_NONBLOCK);
-        fcntl(fd, FcntlArg::F_SETFL(flags)).map_err(|e| SerialError::Io(nix_err(e)))?;
+        crate::system_ffi::set_nonblock(fd)
+            .map_err(|e| SerialError::Io(nix_err(e)))?;
 
         let inner = AsyncFd::new(FdWrapper::new(fd)).map_err(SerialError::Io)?;
 
@@ -625,27 +573,21 @@ impl AsyncRead for FdTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                let unfilled = buf.initialize_unfilled();
-                libc::read(
-                    guard.get_inner().fd,
-                    unfilled.as_mut_ptr() as *mut libc::c_void,
-                    unfilled.len(),
-                )
-            };
+            let unfilled = buf.initialize_unfilled();
+            let n = crate::system_ffi::read_fd(guard.get_inner().fd, unfilled);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                0 => return Poll::Ready(Ok(())),
-                n => {
-                    buf.advance(n as usize);
+                Ok(0) => return Poll::Ready(Ok(())),
+                Ok(n) => {
+                    buf.advance(n);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -666,24 +608,18 @@ impl AsyncWrite for FdTransport {
                 Poll::Pending => return Poll::Pending,
             };
 
-            let n = unsafe {
-                libc::write(
-                    guard.get_inner().fd,
-                    buf.as_ptr() as *const libc::c_void,
-                    buf.len(),
-                )
-            };
+            let n = crate::system_ffi::write_fd(guard.get_inner().fd, buf);
 
             match n {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
+                Err(e) => {
+                    let err = std::io::Error::from_raw_os_error(e as i32);
                     if err.kind() == std::io::ErrorKind::WouldBlock {
                         guard.clear_ready();
                         continue;
                     }
                     return Poll::Ready(Err(err));
                 }
-                n => return Poll::Ready(Ok(n as usize)),
+                Ok(n) => return Poll::Ready(Ok(n)),
             }
         }
     }

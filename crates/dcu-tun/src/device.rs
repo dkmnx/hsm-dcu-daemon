@@ -4,7 +4,8 @@
 //! interface via `TUNSETIFF`, and expose MTU / up-down control. The kernel
 //! assigns the real interface name, which we read back.
 
-use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
 
 use crate::error::TunError;
 
@@ -56,11 +57,6 @@ pub struct TunDevice {
 
 impl TunDevice {
     /// Open the TUN device described by `config`.
-    ///
-    /// Steps (matching `tunnel_open` in `tunnel.c`):
-    /// 1. Open `/dev/net/tun` read/write, non-blocking.
-    /// 2. `ioctl(TUNSETIFF, ifr{IFF_TUN | IFF_NO_PI})`.
-    /// 3. Read back the assigned interface name.
     pub fn open(config: TunConfig) -> Result<Self, TunError> {
         if config.name.len() >= libc::IFNAMSIZ {
             return Err(TunError::NameTooLong);
@@ -73,7 +69,7 @@ impl TunDevice {
         }
 
         let fd = open_tun_device()?;
-        let name = set_iff(&fd, &config)?;
+        let name = set_iff(fd.as_raw_fd(), &config)?;
 
         Ok(Self { fd, name })
     }
@@ -83,42 +79,30 @@ impl TunDevice {
         &self.name
     }
 
-    /// Set the interface MTU, using a netif-management socket as the C does
-    /// (`netif_mgmt_set_mtu`).
+    /// Set the interface MTU.
     pub fn set_mtu(&self, mtu: u16) -> Result<(), TunError> {
-        let netif_fd = crate::ioctl::open_netif_socket()?;
-        crate::ioctl::set_interface_mtu(&netif_fd, &self.name, mtu)
+        crate::ioctl::set_interface_mtu(&self.fd, &self.name, mtu)
     }
 
-    /// Bring the interface up (`true`) or down (`false`). Bringing it down
-    /// also clears `IFF_RUNNING`, matching `netif_mgmt_set_up(fd, name, false)`.
+    /// Bring the interface up (`true`) or down (`false`).
     pub fn set_up(&self, up: bool) -> Result<(), TunError> {
-        let netif_fd = crate::ioctl::open_netif_socket()?;
-        crate::ioctl::set_interface_up(&netif_fd, &self.name, up)
+        crate::ioctl::set_interface_up(&self.fd, &self.name, up)
     }
 
     /// Returns `true` if the interface is administratively up.
     pub fn is_up(&self) -> Result<bool, TunError> {
-        let netif_fd = crate::ioctl::open_netif_socket()?;
-        crate::ioctl::interface_is_up(&netif_fd, &self.name)
+        crate::ioctl::interface_is_up(&self.fd, &self.name)
     }
 
-    /// Duplicate the underlying fd (used by the async read/write bridge in
-    /// `TunnelIPv6Interface`, which needs a second handle to the same device).
+    /// Duplicate the underlying fd.
     pub fn try_clone_fd(&self) -> Result<OwnedFd, TunError> {
         self.fd.try_clone().map_err(TunError::Open)
     }
 
-    /// Consume the device, closing the fd. Equivalent to dropping it.
-    pub fn close(self) {
-        // OwnedFd closes on drop; nothing else to do.
-    }
+    /// Consume the device, closing the fd.
+    pub fn close(self) {}
 
-    /// Build a `TunDevice` from an already-open fd (e.g. a cloned one) and
-    /// the interface name. Panics if `name` is longer than `IFNAMSIZ`.
-    ///
-    /// This avoids a second `open_tun_device()` + `ioctl(TUNSETIFF)` when
-    /// duplicating an existing TUN handle via `try_clone_fd()`.
+    /// Build a `TunDevice` from an already-open fd and the interface name.
     pub fn from_fd_and_name(fd: OwnedFd, name: &str) -> Self {
         assert!(name.len() < libc::IFNAMSIZ, "interface name too long");
         TunDevice {
@@ -134,26 +118,24 @@ impl AsRawFd for TunDevice {
     }
 }
 
-/// Open `/dev/net/tun` (`O_RDWR | O_NONBLOCK`).
+/// Open `/dev/net/tun` read/write non-blocking.
 #[cfg(target_os = "linux")]
 fn open_tun_device() -> Result<OwnedFd, TunError> {
-    // SAFETY: open with a static C-string path; the returned fd is owned by
-    // OwnedFd.
-    let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK) };
-    if fd < 0 {
-        return Err(TunError::Open(std::io::Error::last_os_error()));
-    }
-    // SAFETY: fd is a valid, freshly opened descriptor owned by us.
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open("/dev/net/tun")
+        .map_err(TunError::Open)?;
+    Ok(OwnedFd::from(file))
 }
 
 /// Attach the TUN interface via `TUNSETIFF` and read back the assigned name.
 #[cfg(target_os = "linux")]
-fn set_iff(fd: &OwnedFd, config: &TunConfig) -> Result<String, TunError> {
-    let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
+fn set_iff(fd: RawFd, config: &TunConfig) -> Result<String, TunError> {
+    let mut ifr = crate::ffi::zeroed_ifreq();
 
     let name_bytes = config.name.as_bytes();
-    // ifr_name is IFNAMSIZ (16) bytes; already bounds-checked by the caller.
     for (d, s) in ifr.ifr_name.iter_mut().zip(name_bytes.iter()) {
         *d = *s as libc::c_char;
     }
@@ -162,25 +144,18 @@ fn set_iff(fd: &OwnedFd, config: &TunConfig) -> Result<String, TunError> {
     if config.no_packet_info {
         flags |= libc::IFF_NO_PI as libc::c_short;
     }
-    ifr.ifr_ifru.ifru_flags = flags;
+    crate::ffi::set_ifru_flags(&mut ifr, flags as i32);
 
-    // SAFETY: TUNSETIFF writes the assigned name back into ifr.ifr_name.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::TUNSETIFF, &ifr) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
+    crate::ffi::tunsetiff(fd, &mut ifr)
+        .map_err(|e| TunError::Ioctl {
             op: "TUNSETIFF",
-            source: std::io::Error::last_os_error(),
-        });
-    }
+            source: std::io::Error::from_raw_os_error(e as i32),
+        })?;
 
-    let end = ifr
-        .ifr_name
-        .iter()
-        .position(|&b| b == 0)
-        .unwrap_or(ifr.ifr_name.len());
-    let name_bytes: Vec<u8> = ifr.ifr_name[..end].iter().map(|&b| b as u8).collect();
-    let name = String::from_utf8(name_bytes)
-        .map_err(|_| TunError::InvalidConfig("interface name not UTF-8".into()))?;
+    let name = crate::ffi::read_ifreq_name(&ifr);
+    if name.is_empty() {
+        return Err(TunError::InvalidConfig("interface name empty after TUNSETIFF".into()));
+    }
 
     Ok(name)
 }

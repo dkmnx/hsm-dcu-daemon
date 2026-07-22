@@ -193,22 +193,11 @@ impl AsRawFd for TunnelIPv6Interface {
 }
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
-    // SAFETY: fd is a valid TUN fd owned by self; buf is a valid slice of
-    // length >= 0. read writes at most buf.len() bytes.
-    let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast::<libc::c_void>(), buf.len()) };
-    if n < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(n as usize)
+    crate::ffi::read_fd(fd, buf).map_err(|e| std::io::Error::from_raw_os_error(e as i32))
 }
 
 fn write_fd(fd: RawFd, buf: &[u8]) -> std::io::Result<usize> {
-    // SAFETY: fd is a valid TUN fd owned by self; buf is a valid slice.
-    let n = unsafe { libc::write(fd, buf.as_ptr().cast::<libc::c_void>(), buf.len()) };
-    if n < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(n as usize)
+    crate::ffi::write_fd(fd, buf).map_err(|e| std::io::Error::from_raw_os_error(e as i32))
 }
 
 fn read_into_err(e: std::io::Error) -> TunError {

@@ -5,6 +5,8 @@
 //! management, and synchronous + asynchronous packet read/write for the
 //! daemon's event loop.
 
+#[cfg(target_os = "linux")]
+pub mod ffi;
 pub mod device;
 pub mod error;
 pub mod interface;

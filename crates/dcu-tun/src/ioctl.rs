@@ -1,82 +1,38 @@
 //! Low-level netlink/ioctl wrappers for interface management.
 //!
 //! Reimplements `src/util/netif-mgmt.c`. All operations use a single
-//! `socket(AF_INET6, SOCK_DGRAM, 0)` "netif-management" fd, matching the C
-//! `netif_mgmt_open()`. Address and route manipulation use the Linux
+//! netif-management fd. Address and route manipulation use the Linux
 //! `struct in6_ifreq` / `struct in6_rtmsg` layouts from `linux/if.h` and
 //! `linux/ipv6_route.h`.
 //!
-//! Every `unsafe` ioctl/union-field access is confined to this module (the
-//! ioctl-exempt crate per AGENTS.md).
+//! Every kernel ABI call lives in `ffi.rs`. This module exposes only safe
+//! Rust wrappers.
 
 use std::net::Ipv6Addr;
-use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::io::{AsRawFd, OwnedFd};
 
 use ipnet::Ipv6Net;
 use nix::ifaddrs::InterfaceAddress;
 
 use crate::error::TunError;
+use crate::ffi::{In6Ifreq, Ipv6Mreq};
 
 /// Open the netif-management socket used for `SIOC*IF*` ioctls.
 #[cfg(target_os = "linux")]
 pub fn open_netif_socket() -> Result<OwnedFd, TunError> {
-    // SAFETY: a datagram socket over AF_INET6 is always valid to create.
-    let fd = unsafe { libc::socket(libc::AF_INET6, libc::SOCK_DGRAM, 0) };
-    if fd < 0 {
-        return Err(TunError::Open(std::io::Error::last_os_error()));
-    }
-    // SAFETY: fd is a valid, freshly created descriptor owned by us.
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    crate::ffi::socket_inet6_dgram()
+        .map(OwnedFd::from)
+        .map_err(|e| TunError::Open(e.into()))
 }
 
-/// Linux `struct in6_ifreq` (from `<linux/if.h>`), used by `SIOCSIFADDR` /
-/// `SIOCDIFADDR` for IPv6 address add/remove.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct In6Ifreq {
-    ifr6_addr: libc::in6_addr,
-    ifr6_prefixlen: u32,
-    ifr6_ifindex: u32,
-}
-
-/// Linux `struct in6_rtmsg` (from `<linux/ipv6_route.h>`), used by
-/// `SIOCADDRT` / `SIOCDELRT` for IPv6 route add/remove.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct In6Rtmsg {
-    rtmsg_dst: libc::in6_addr,
-    rtmsg_src: libc::in6_addr,
-    rtmsg_gateway: libc::in6_addr,
-    rtmsg_type: u32,
-    rtmsg_dst_len: u16,
-    rtmsg_src_len: u16,
-    rtmsg_metric: u32,
-    rtmsg_info: u32,
-    rtmsg_flags: u32,
-    rtmsg_ifindex: i32,
-}
-
-/// Linux `struct ipv6_mreq` (from `<netinet/in.h>`), used by
-/// `IPV6_JOIN_GROUP` / `IPV6_LEAVE_GROUP` for multicast membership.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Ipv6Mreq {
-    mreq6_addr: libc::in6_addr,
-    mreq6_ifindex: i32,
-}
-
-/// Copy an [`Ipv6Addr`] into a `libc::in6_addr`.
 fn to_in6_addr(addr: Ipv6Addr) -> libc::in6_addr {
-    let octets = addr.octets();
     libc::in6_addr {
-        // in6_addr is a 16-byte union; s6_addr is portable.
-        s6_addr: octets,
+        s6_addr: addr.octets(),
     }
 }
 
-/// Build a `libc::ifreq` carrying only the interface name.
 fn name_ifreq(name: &str) -> libc::ifreq {
-    let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
+    let mut ifr = crate::ffi::zeroed_ifreq();
     for (d, s) in ifr.ifr_name.iter_mut().zip(name.as_bytes()) {
         *d = *s as libc::c_char;
     }
@@ -87,32 +43,18 @@ fn name_ifreq(name: &str) -> libc::ifreq {
 #[cfg(target_os = "linux")]
 pub fn get_interface_flags(fd: &impl AsRawFd, name: &str) -> Result<i32, TunError> {
     let ifr = name_ifreq(name);
-    // SAFETY: SIOCGIFFLAGS reads flags into ifr.ifr_ifru.ifru_flags.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCGIFFLAGS, &ifr) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
-            op: "SIOCGIFFLAGS",
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    // SAFETY: reading the union field we just populated.
-    Ok(unsafe { ifr.ifr_ifru.ifru_flags as i32 })
+    crate::ffi::siocgifflags(fd.as_raw_fd(), &ifr)
+        .map_err(|e| TunError::Ioctl { op: "SIOCGIFFLAGS", source: e.into() })?;
+    Ok(crate::ffi::ifru_flags(&ifr))
 }
 
 /// Set the interface flags (`SIOCSIFFLAGS`).
 #[cfg(target_os = "linux")]
 pub fn set_interface_flags(fd: &impl AsRawFd, name: &str, flags: i32) -> Result<(), TunError> {
     let mut ifr = name_ifreq(name);
-    ifr.ifr_ifru.ifru_flags = flags as libc::c_short;
-    // SAFETY: SIOCSIFFLAGS writes flags from ifr.ifr_ifru.ifru_flags.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCSIFFLAGS, &ifr) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
-            op: "SIOCSIFFLAGS",
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    Ok(())
+    crate::ffi::set_ifru_flags(&mut ifr, flags);
+    crate::ffi::siocsifflags(fd.as_raw_fd(), &ifr)
+        .map_err(|e| TunError::Ioctl { op: "SIOCSIFFLAGS", source: e.into() })
 }
 
 /// Returns `true` if the interface is administratively up.
@@ -120,8 +62,7 @@ pub fn interface_is_up(fd: &impl AsRawFd, name: &str) -> Result<bool, TunError> 
     Ok((get_interface_flags(fd, name)? & libc::IFF_UP) == libc::IFF_UP)
 }
 
-/// Bring the interface up (`true`) or down (`false`). Down also clears
-/// `IFF_RUNNING`, matching `netif_mgmt_set_up(fd, name, false)`.
+/// Bring the interface up (`true`) or down (`false`).
 #[cfg(target_os = "linux")]
 pub fn set_interface_up(fd: &impl AsRawFd, name: &str, up: bool) -> Result<(), TunError> {
     let flags = get_interface_flags(fd, name)?;
@@ -137,38 +78,21 @@ pub fn set_interface_up(fd: &impl AsRawFd, name: &str, up: bool) -> Result<(), T
 #[cfg(target_os = "linux")]
 pub fn set_interface_mtu(fd: &impl AsRawFd, name: &str, mtu: u16) -> Result<(), TunError> {
     let mut ifr = name_ifreq(name);
-    ifr.ifr_ifru.ifru_mtu = mtu as libc::c_int;
-    // SAFETY: SIOCSIFMTU reads ifr.ifr_ifru.ifru_mtu.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCSIFMTU, &ifr) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
-            op: "SIOCSIFMTU",
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    Ok(())
+    crate::ffi::set_ifru_mtu(&mut ifr, mtu as libc::c_int);
+    crate::ffi::siocsifmtu(fd.as_raw_fd(), &ifr)
+        .map_err(|e| TunError::Ioctl { op: "SIOCSIFMTU", source: e.into() })
 }
 
 /// Resolve the kernel interface index (`SIOGIFINDEX`).
 #[cfg(target_os = "linux")]
 fn interface_index(fd: &impl AsRawFd, name: &str) -> Result<u32, TunError> {
     let ifr = name_ifreq(name);
-    // SAFETY: SIOGIFINDEX writes ifr.ifr_ifru.ifru_ifindex.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOGIFINDEX, &ifr) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
-            op: "SIOGIFINDEX",
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    // SAFETY: reading the union field populated by the ioctl.
-    Ok(unsafe { ifr.ifr_ifru.ifru_ifindex as u32 })
+    crate::ffi::siogifindex(fd.as_raw_fd(), &ifr)
+        .map_err(|e| TunError::Ioctl { op: "SIOGIFINDEX", source: e.into() })?;
+    Ok(crate::ffi::ifru_ifindex(&ifr))
 }
 
 /// Add an IPv6 address to the interface (`SIOCSIFADDR` with `in6_ifreq`).
-///
-/// Mirrors `netif_mgmt_add_ipv6_address`: Linux requires removing the
-/// address first, then adding it.
 #[cfg(target_os = "linux")]
 pub fn add_ipv6_address(
     fd: &impl AsRawFd,
@@ -186,23 +110,9 @@ pub fn add_ipv6_address(
         ifr6_ifindex: ifindex,
     };
     // Remove first (idempotent on Linux), then add.
-    // SAFETY: SIOCDIFADDR removes the address described by req.
-    unsafe {
-        libc::ioctl(fd.as_raw_fd(), libc::SIOCDIFADDR, &req);
-    }
-    // SAFETY: SIOCSIFADDR adds the address described by req.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCSIFADDR, &req) };
-    if ret < 0 {
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::EALREADY) {
-            return Ok(());
-        }
-        return Err(TunError::Ioctl {
-            op: "SIOCSIFADDR",
-            source: err,
-        });
-    }
-    Ok(())
+    let _ = crate::ffi::siocdifaddr_in6(fd.as_raw_fd(), &req);
+    crate::ffi::siocsifaddr_in6(fd.as_raw_fd(), &req)
+        .map_err(|e| TunError::Ioctl { op: "SIOCSIFADDR", source: e.into() })
 }
 
 /// Remove an IPv6 address from the interface (`SIOCDIFADDR`).
@@ -222,15 +132,8 @@ pub fn remove_ipv6_address(
         ifr6_prefixlen: prefix_len as u32,
         ifr6_ifindex: ifindex,
     };
-    // SAFETY: SIOCDIFADDR removes the address described by req.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCDIFADDR, &req) };
-    if ret < 0 {
-        return Err(TunError::Ioctl {
-            op: "SIOCDIFADDR",
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    Ok(())
+    crate::ffi::siocdifaddr_in6(fd.as_raw_fd(), &req)
+        .map_err(|e| TunError::Ioctl { op: "SIOCDIFADDR", source: e.into() })
 }
 
 /// Add an IPv6 route (`SIOCADDRT` with `in6_rtmsg`).
@@ -242,7 +145,7 @@ pub fn add_ipv6_route(
     metric: u32,
 ) -> Result<(), TunError> {
     let ifindex = interface_index(fd, name)?;
-    let mut rt: In6Rtmsg = unsafe { std::mem::zeroed() };
+    let mut rt = crate::ffi::zeroed_in6_rtmsg();
     rt.rtmsg_dst = to_in6_addr(dest.addr());
     rt.rtmsg_dst_len = dest.prefix_len() as u16;
     let mut flags = libc::RTF_UP as u32;
@@ -253,22 +156,8 @@ pub fn add_ipv6_route(
     rt.rtmsg_metric = metric;
     rt.rtmsg_ifindex = ifindex as i32;
 
-    // SAFETY: SIOCADDRT installs the route described by rt.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCADDRT, &rt) };
-    if ret < 0 {
-        let err = std::io::Error::last_os_error();
-        if matches!(
-            err.raw_os_error(),
-            Some(libc::EALREADY) | Some(libc::EEXIST)
-        ) {
-            return Ok(());
-        }
-        return Err(TunError::Ioctl {
-            op: "SIOCADDRT",
-            source: err,
-        });
-    }
-    Ok(())
+    crate::ffi::siocaddrt(fd.as_raw_fd(), &rt)
+        .map_err(|e| TunError::Ioctl { op: "SIOCADDRT", source: e.into() })
 }
 
 /// Remove an IPv6 route (`SIOCDELRT`).
@@ -280,7 +169,7 @@ pub fn remove_ipv6_route(
     metric: u32,
 ) -> Result<(), TunError> {
     let ifindex = interface_index(fd, name)?;
-    let mut rt: In6Rtmsg = unsafe { std::mem::zeroed() };
+    let mut rt = crate::ffi::zeroed_in6_rtmsg();
     rt.rtmsg_dst = to_in6_addr(dest.addr());
     rt.rtmsg_dst_len = dest.prefix_len() as u16;
     let mut flags = libc::RTF_UP as u32;
@@ -291,29 +180,11 @@ pub fn remove_ipv6_route(
     rt.rtmsg_metric = metric;
     rt.rtmsg_ifindex = ifindex as i32;
 
-    // SAFETY: SIOCDELRT removes the route described by rt.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::SIOCDELRT, &rt) };
-    if ret < 0 {
-        let err = std::io::Error::last_os_error();
-        if matches!(
-            err.raw_os_error(),
-            Some(libc::EALREADY) | Some(libc::EEXIST)
-        ) {
-            return Ok(());
-        }
-        return Err(TunError::Ioctl {
-            op: "SIOCDELRT",
-            source: err,
-        });
-    }
-    Ok(())
+    crate::ffi::siocdelrt(fd.as_raw_fd(), &rt)
+        .map_err(|e| TunError::Ioctl { op: "SIOCDELRT", source: e.into() })
 }
 
 /// Enumerate IPv6 addresses currently assigned to `name`.
-///
-/// Uses `getifaddrs` (safe) rather than netlink; this is the polling
-/// equivalent of the C netlink `RTM_NEWADDR`/`RTM_DELADDR` listener, which
-/// lives in the async daemon, not here.
 pub fn list_ipv6_addresses(name: &str) -> Result<Vec<Ipv6Net>, TunError> {
     let mut out = Vec::new();
     for ifaddr in nix::ifaddrs::getifaddrs()? {
@@ -327,7 +198,6 @@ pub fn list_ipv6_addresses(name: &str) -> Result<Vec<Ipv6Net>, TunError> {
     Ok(out)
 }
 
-/// Extract an `Ipv6Net` from an `InterfaceAddress` (address + netmask).
 fn ipv6_net_of(ifaddr: &InterfaceAddress) -> Option<Ipv6Net> {
     let addr = match ifaddr.address {
         Some(ref sa) => match sa.as_sockaddr_in6() {
@@ -347,10 +217,6 @@ fn ipv6_net_of(ifaddr: &InterfaceAddress) -> Option<Ipv6Net> {
 }
 
 /// Join an IPv6 multicast group on the interface (MLD `IPV6_JOIN_GROUP`).
-///
-/// Mirrors `netif_mgmt_join_ipv6_multicast_address` (`setsockopt` with
-/// `struct ipv6_mreq`). The netif-management socket is an AF_INET6 datagram
-/// socket, so it is valid for this setsockopt.
 #[cfg(target_os = "linux")]
 pub fn join_multicast_address(
     fd: &impl AsRawFd,
@@ -362,27 +228,8 @@ pub fn join_multicast_address(
         mreq6_addr: to_in6_addr(addr),
         mreq6_ifindex: ifindex as i32,
     };
-    // SAFETY: IPV6_JOIN_GROUP (=20) installs a multicast membership for mreq.
-    let ret = unsafe {
-        libc::setsockopt(
-            fd.as_raw_fd(),
-            libc::IPPROTO_IPV6,
-            20, // IPV6_JOIN_GROUP
-            &mreq as *const _ as *const libc::c_void,
-            std::mem::size_of::<Ipv6Mreq>() as libc::socklen_t,
-        )
-    };
-    if ret < 0 {
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::EALREADY) {
-            return Ok(());
-        }
-        return Err(TunError::Ioctl {
-            op: "IPV6_JOIN_GROUP",
-            source: err,
-        });
-    }
-    Ok(())
+    crate::ffi::setsockopt_ipv6_join_group(fd.as_raw_fd(), &mreq)
+        .map_err(|e| TunError::Ioctl { op: "IPV6_JOIN_GROUP", source: e.into() })
 }
 
 /// Leave an IPv6 multicast group on the interface (`IPV6_LEAVE_GROUP`).
@@ -397,30 +244,8 @@ pub fn leave_multicast_address(
         mreq6_addr: to_in6_addr(addr),
         mreq6_ifindex: ifindex as i32,
     };
-    // SAFETY: IPV6_LEAVE_GROUP (=21) drops a multicast membership for mreq.
-    let ret = unsafe {
-        libc::setsockopt(
-            fd.as_raw_fd(),
-            libc::IPPROTO_IPV6,
-            21, // IPV6_LEAVE_GROUP
-            &mreq as *const _ as *const libc::c_void,
-            std::mem::size_of::<Ipv6Mreq>() as libc::socklen_t,
-        )
-    };
-    if ret < 0 {
-        let err = std::io::Error::last_os_error();
-        if matches!(
-            err.raw_os_error(),
-            Some(libc::EALREADY) | Some(libc::EADDRNOTAVAIL)
-        ) {
-            return Ok(());
-        }
-        return Err(TunError::Ioctl {
-            op: "IPV6_LEAVE_GROUP",
-            source: err,
-        });
-    }
-    Ok(())
+    crate::ffi::setsockopt_ipv6_leave_group(fd.as_raw_fd(), &mreq)
+        .map_err(|e| TunError::Ioctl { op: "IPV6_LEAVE_GROUP", source: e.into() })
 }
 
 /// Compute the prefix length from a netmask address.

@@ -4,42 +4,13 @@
 //! that receive pcap-formatted Spinel frames. Each `PcapToFd` call adds
 //! an FD; `PcapTerminate` closes them all.
 
-use std::io::Write;
-use std::os::unix::io::{FromRawFd, RawFd};
+use std::os::unix::io::RawFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::RwLock;
 
-/// pcap global file header (little-endian).
-#[repr(C, packed)]
-struct PcapGlobalHeader {
-    magic: u32,
-    version_major: u16,
-    version_minor: u16,
-    _gmt_offset: i32,
-    _accuracy: u32,
-    snap_len: u32,
-    dlt: u32,
-}
-
-/// pcap per-packet record header (little-endian).
-#[repr(C, packed)]
-struct PcapRecordHeader {
-    ts_sec: u32,
-    ts_usec: u32,
-    incl_len: u32,
-    orig_len: u32,
-}
-
-/// PPI (Per-Packet Information) header for 802.15.4 captures.
-#[repr(C, packed)]
-struct PpiHeader {
-    version: u8,
-    _flags: u8,
-    size: u16,
-    dlt: u32,
-}
+use crate::pcap_ffi::{PcapGlobalHeader, PcapRecordHeader, PpiHeader};
 
 const PCAP_MAGIC: u32 = 0xa1b2c3d4;
 const PCAP_VERSION_MAJOR: u16 = 2;
@@ -48,30 +19,19 @@ const PCAP_SNAP_LEN: u32 = 0x0004_0000;
 const PCAP_DLT_PPI: u32 = 192;
 const PPI_HEADER_SIZE: u16 = 8;
 
-#[allow(unsafe_code)]
 fn write_pcap_header(fd: RawFd) -> std::io::Result<()> {
     let header = PcapGlobalHeader {
         magic: PCAP_MAGIC,
         version_major: PCAP_VERSION_MAJOR,
         version_minor: PCAP_VERSION_MINOR,
-        _gmt_offset: 0,
-        _accuracy: 0,
+        gmt_offset: 0,
+        accuracy: 0,
         snap_len: PCAP_SNAP_LEN,
         dlt: PCAP_DLT_PPI,
     };
-    let buf = unsafe {
-        std::slice::from_raw_parts(
-            &header as *const _ as *const u8,
-            size_of::<PcapGlobalHeader>(),
-        )
-    };
-    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-    file.write_all(buf)?;
-    std::mem::forget(file);
-    Ok(())
+    crate::pcap_ffi::write_pcap_header(fd, &header)
 }
 
-#[allow(unsafe_code)]
 fn write_pcap_record(fd: RawFd, payload: &[u8]) -> std::io::Result<()> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -84,23 +44,11 @@ fn write_pcap_record(fd: RawFd, payload: &[u8]) -> std::io::Result<()> {
     };
     let ppi = PpiHeader {
         version: 0,
-        _flags: 0,
+        flags: 0,
         size: PPI_HEADER_SIZE,
         dlt: PCAP_DLT_PPI,
     };
-    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-    file.write_all(unsafe {
-        std::slice::from_raw_parts(
-            &record as *const _ as *const u8,
-            size_of::<PcapRecordHeader>(),
-        )
-    })?;
-    file.write_all(unsafe {
-        std::slice::from_raw_parts(&ppi as *const _ as *const u8, size_of::<PpiHeader>())
-    })?;
-    file.write_all(payload)?;
-    std::mem::forget(file);
-    Ok(())
+    crate::pcap_ffi::write_pcap_record(fd, &record, &ppi, payload)
 }
 
 /// Pcap capture state. Uses `AtomicBool` for fast O(1) `is_enabled` check
@@ -135,14 +83,11 @@ impl PcapManager {
         Ok(())
     }
 
-    #[allow(unsafe_code)]
     pub async fn terminate(&self) {
         let mut fds = self.fds.write().await;
         for fd in fds.drain(..) {
             tracing::info!("Pcap: closing FD {fd}");
-            unsafe {
-                libc::close(fd);
-            }
+            crate::pcap_ffi::close_fd(fd);
         }
         self.active.store(false, Ordering::Relaxed);
     }
@@ -171,10 +116,7 @@ impl PcapManager {
                 let mut fds = this.fds.blocking_write();
                 for fd in &remove {
                     fds.retain(|&f| f != *fd);
-                    #[allow(unsafe_code)]
-                    unsafe {
-                        libc::close(*fd);
-                    }
+                    crate::pcap_ffi::close_fd(*fd);
                     tracing::warn!("Pcap: removed broken FD {fd}");
                 }
             }
@@ -188,16 +130,16 @@ mod tests {
 
     #[test]
     fn pcap_header_size() {
-        assert_eq!(size_of::<PcapGlobalHeader>(), 24);
+        assert_eq!(std::mem::size_of::<PcapGlobalHeader>(), 24);
     }
 
     #[test]
     fn pcap_record_header_size() {
-        assert_eq!(size_of::<PcapRecordHeader>(), 16);
+        assert_eq!(std::mem::size_of::<PcapRecordHeader>(), 16);
     }
 
     #[test]
     fn ppi_header_size() {
-        assert_eq!(size_of::<PpiHeader>(), 8);
+        assert_eq!(std::mem::size_of::<PpiHeader>(), 8);
     }
 }

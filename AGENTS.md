@@ -91,6 +91,9 @@ porting coverage analysis, gap list, and roadmap.
   `declare_property_keys!` macro in
   `crates/wisun-types/src/property_key.rs`. Add new properties
   in the macro invocation, not separately.
-- **No unsafe in Rust crates** except `dcu-tun`
-  (ioctl) and `dcu-serial` (serial port) — enforced
-  by `[workspace.lints]` (overridden per-crate where needed).
+- **No unsafe in Rust crates** — enforced by `[workspace.lints]`
+  (`unsafe_code = "deny"`, no per-crate overrides). Unavoidable
+  kernel ABI calls (ioctl, fork, raw-fd read/write) are isolated
+  in dedicated `*_ffi.rs` modules marked `#![allow(unsafe_code)]`
+  with safe public wrappers. Application code never contains
+  `unsafe` blocks.

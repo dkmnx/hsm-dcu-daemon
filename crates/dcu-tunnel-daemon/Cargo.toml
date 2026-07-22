@@ -23,6 +23,7 @@ zbus = { workspace = true }
 hex = { workspace = true }
 ipnet = { workspace = true }
 libc = "0.2"
+nix = { workspace = true, features = ["fs", "process", "user"] }
 
 [features]
 test-util = []

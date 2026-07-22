@@ -15,7 +15,10 @@ pub mod framing;
 pub mod pty;
 pub mod socket;
 pub mod system;
+#[cfg(unix)]
+pub mod system_ffi;
 pub mod tcp;
+pub mod termios;
 pub mod transport;
 pub mod uart;
 
