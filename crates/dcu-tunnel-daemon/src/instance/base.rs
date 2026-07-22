@@ -313,6 +313,12 @@ pub struct NcpInstanceBase {
     address_frame_rx: mpsc::UnboundedReceiver<SpinelFrame>,
     address_frame_tx: mpsc::UnboundedSender<SpinelFrame>,
 
+    /// Reset notification channel. The frame task sends a frame here when it
+    /// sees an unsolicited CMD_PROP_VALUE_IS for PROP_LAST_STATUS (the NCP's
+    /// response to CMD_RESET). The init code awaits this instead of relying on
+    /// the response table (which ignores TID=0 frames).
+    reset_notify_tx: mpsc::UnboundedSender<SpinelFrame>,
+
     /// Address / prefix / route manager (P0-4). Tracks NCP-reported and
     /// user-inserted addresses/prefixes/routes and computes the TUN ops
     /// needed to converge the host interface.
@@ -327,6 +333,11 @@ pub struct NcpInstanceBase {
     /// main.rs takes the receiver and emits the D-Bus signal.
     time_update_tx: mpsc::UnboundedSender<(u64, i8)>,
     pub(crate) time_update_rx: mpsc::UnboundedReceiver<(u64, i8)>,
+
+    /// Reset notification receiver. Paired with `reset_notify_tx`.
+    /// The init code takes this to await the NCP's CMD_RESET
+    /// acknowledgment (CMD_PROP_VALUE_IS for PROP_LAST_STATUS).
+    reset_notify_rx: mpsc::UnboundedReceiver<SpinelFrame>,
 
     /// Pcap capture manager (P1-2). Active capture FDs receive
     /// Spinel frame data in pcap format.
@@ -355,6 +366,7 @@ impl NcpInstanceBase {
         let (stream_net_tx, _stream_net_rx) = mpsc::unbounded_channel();
         let (address_frame_tx, address_frame_rx) = mpsc::unbounded_channel();
         let (time_update_tx, time_update_rx) = mpsc::unbounded_channel();
+        let (reset_notify_tx, reset_notify_rx) = mpsc::unbounded_channel();
         let network_retain =
             crate::network_retain::NetworkRetain::new(config.daemon_network_retain_command.clone());
 
@@ -394,6 +406,8 @@ impl NcpInstanceBase {
             deep_sleep_tickle_task: std::sync::Mutex::new(None),
             time_update_tx,
             time_update_rx,
+            reset_notify_tx,
+            reset_notify_rx,
         })
     }
 
@@ -429,6 +443,7 @@ impl NcpInstanceBase {
         let stream_net_tx = self.stream_net_tx.clone();
         let address_frame_tx = self.address_frame_tx.clone();
         let time_update_tx = self.time_update_tx.clone();
+        let reset_notify_tx = self.reset_notify_tx.clone();
         let active_dataset = self.active_dataset.clone();
         let pending_dataset = self.pending_dataset.clone();
         let shared_state = self.shared_state.clone();
@@ -468,6 +483,12 @@ impl NcpInstanceBase {
                                                     let _ = time_update_tx.send((time, status));
                                                 }
                                             }
+                                            // Reset notification: NCP responds to CMD_RESET with
+                                            // CMD_PROP_VALUE_IS(TID=0) for PROP_LAST_STATUS.
+                                            // Forward to the init code waiting on reset_notify_rx.
+                                            if prop == spinel::property::PROP_LAST_STATUS {
+                                                let _ = reset_notify_tx.send(frame.clone());
+                                            }
                                         }
                                     }
                                 }
@@ -498,6 +519,10 @@ impl NcpInstanceBase {
             reset_timeout,
             MAX_RESET_RETRIES
         );
+        let mut reset_notify_rx = std::mem::replace(
+            &mut self.reset_notify_rx,
+            mpsc::unbounded_channel().1,
+        );
         for attempt in 0..MAX_RESET_RETRIES {
             // Alternate hard reset (GPIO) and soft reset (CMD_RESET),
             // matching the C SpinelNCPInstance-Protothreads.cpp retry logic.
@@ -509,23 +534,38 @@ impl NcpInstanceBase {
                 }
             }
 
-            match self
-                .send_command_timeout(spinel::command::CMD_RESET, Vec::new(), reset_timeout)
-                .await
-            {
-                Ok(_) => {
+            // Send CMD_RESET directly. The NCP responds with
+            // CMD_PROP_VALUE_IS(TID=0) for PROP_LAST_STATUS, which the
+            // response table ignores (TID=0). The frame task forwards
+            // PROP_LAST_STATUS frames to reset_notify_rx instead.
+            let tid = alloc_tid();
+            let header = spinel::frame::make_header(0, tid);
+            let frame = SpinelFrame::with_header(header, spinel::command::CMD_RESET, Vec::new());
+            if self.outbound_tx.send(frame).is_err() {
+                tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES}: I/O task not running");
+                break;
+            }
+
+            match tokio::time::timeout(reset_timeout, reset_notify_rx.recv()).await {
+                Ok(Some(_frame)) => {
+                    tracing::info!("NCP reset acknowledged (attempt {attempt})");
                     reset_success = true;
                     break;
                 }
-                Err(e) => {
-                    tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES} failed: {e}");
+                Ok(None) => {
+                    tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES}: reset channel closed");
+                    break;
+                }
+                Err(_) => {
+                    tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES} failed: timeout");
                     if attempt < MAX_RESET_RETRIES {
-                        // Backoff before retry
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
                 }
             }
         }
+        // Restore the receiver so subsequent resets (via Command::Reset) work.
+        self.reset_notify_rx = reset_notify_rx;
         
         if !reset_success {
             tracing::error!("NCP init reset failed after {MAX_RESET_RETRIES} attempts");
