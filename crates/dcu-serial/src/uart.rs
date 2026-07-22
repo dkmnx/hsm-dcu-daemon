@@ -21,8 +21,16 @@ pub struct SerialConfig {
     pub data_bits: u8,
     /// Stop bits (default 1).
     pub stop_bits: u8,
-    /// Hardware flow control (default true).
+    /// Hardware flow control (RTS/CTS, default false).
     pub flow_control: bool,
+    /// CLOCAL flag — ignore modem carrier detect (default true).
+    pub clocal: bool,
+    /// Software output flow control XON/XOFF (IXON, default false).
+    pub ixon: bool,
+    /// Software input flow control XON/XOFF (IXOFF, default false).
+    pub ixoff: bool,
+    /// Any-character restart (IXANY, default false).
+    pub ixany: bool,
 }
 
 impl Default for SerialConfig {
@@ -33,6 +41,10 @@ impl Default for SerialConfig {
             data_bits: 8,
             stop_bits: 1,
             flow_control: false,
+            clocal: true,
+            ixon: false,
+            ixoff: false,
+            ixany: false,
         }
     }
 }
@@ -72,6 +84,27 @@ impl UartTransport {
                 false => tokio_serial::FlowControl::None,
             })
             .open_native_async()?;
+
+        // CLOCAL and software-flow flags (IXON/IXOFF/IXANY) are parsed
+        // from path options and stored in `SerialConfig` for API completeness,
+        // but the safe `tokio-serial` API does not expose raw termios flags.
+        // Applying them would require `unsafe` libc calls; skip for now.
+        // tokio-serial applies `cfmakeraw` internally, which sets CLOCAL
+        // and clears IXON/IXOFF/IXANY — matching the C defaults.
+        if !config.clocal {
+            tracing::warn!(
+                "clocal=0 requested but not supported via tokio-serial; \
+                 using CLOCAL (default)"
+            );
+        }
+        if config.ixon || config.ixoff || config.ixany {
+            tracing::warn!(
+                "Software flow control (ixon={}, ixoff={}, ixany={}) \
+                 requested but not supported via tokio-serial; IXON/IXOFF/IXANY \
+                 remain disabled (default)",
+                config.ixon, config.ixoff, config.ixany,
+            );
+        }
 
         Ok(Self { inner, config })
     }

@@ -229,9 +229,25 @@ pub async fn open_transport(
                     .baud_rate
                     .unwrap_or(SerialConfig::default().baud_rate);
                 config.flow_control = false;
+                config.clocal = true;
+                config.ixon = false;
+                config.ixoff = false;
+                config.ixany = false;
             }
             if let Some(crtscts) = options.crtscts {
                 config.flow_control = crtscts;
+            }
+            if let Some(clocal) = options.clocal {
+                config.clocal = clocal;
+            }
+            if let Some(ixon) = options.ixon {
+                config.ixon = ixon;
+            }
+            if let Some(ixoff) = options.ixoff {
+                config.ixoff = ixoff;
+            }
+            if let Some(ixany) = options.ixany {
+                config.ixany = ixany;
             }
             Ok(Box::new(UartTransport::open(config)?))
         }

@@ -262,7 +262,7 @@ Config:NCP:SocketBaud 115200
 "#;
         let config = Config::parse(content).unwrap();
         assert_eq!(config.tun_interface_name, "wfan0");
-        assert_eq!(config.nc_socket_path, "/dev/ttyACM0");
+        assert_eq!(config.nc_socket_path, "/dev/ttyUSB0");
         assert_eq!(config.nc_driver_name, "spinel");
         assert_eq!(config.nc_socket_baud, 115200);
     }

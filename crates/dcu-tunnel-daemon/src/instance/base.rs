@@ -6,6 +6,7 @@
 //! The I/O task owns the serial transport and does HDLC encode/decode.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use spinel::frame::SpinelFrame;
@@ -339,6 +340,11 @@ pub struct NcpInstanceBase {
     /// acknowledgment (CMD_PROP_VALUE_IS for PROP_LAST_STATUS).
     reset_notify_rx: mpsc::UnboundedReceiver<SpinelFrame>,
 
+    /// Guards `reset_notify_tx.send()` in the frame task: only forwards
+    /// `PROP_LAST_STATUS` frames while the init retry loop is active.
+    /// Prevents unbounded channel growth after init completes.
+    reset_expected: Arc<AtomicBool>,
+
     /// Pcap capture manager (P1-2). Active capture FDs receive
     /// Spinel frame data in pcap format.
     pcap: crate::pcap::PcapManager,
@@ -408,6 +414,7 @@ impl NcpInstanceBase {
             time_update_rx,
             reset_notify_tx,
             reset_notify_rx,
+            reset_expected: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -444,6 +451,7 @@ impl NcpInstanceBase {
         let address_frame_tx = self.address_frame_tx.clone();
         let time_update_tx = self.time_update_tx.clone();
         let reset_notify_tx = self.reset_notify_tx.clone();
+        let reset_expected = self.reset_expected.clone();
         let active_dataset = self.active_dataset.clone();
         let pending_dataset = self.pending_dataset.clone();
         let shared_state = self.shared_state.clone();
@@ -486,7 +494,11 @@ impl NcpInstanceBase {
                                             // Reset notification: NCP responds to CMD_RESET with
                                             // CMD_PROP_VALUE_IS(TID=0) for PROP_LAST_STATUS.
                                             // Forward to the init code waiting on reset_notify_rx.
-                                            if prop == spinel::property::PROP_LAST_STATUS {
+                                            // Guard with reset_expected to prevent unbounded channel
+                                            // growth after init completes (see PR #8328 follow-up).
+                                            if prop == spinel::property::PROP_LAST_STATUS
+                                                && reset_expected.load(Ordering::Acquire)
+                                            {
                                                 let _ = reset_notify_tx.send(frame.clone());
                                             }
                                         }
@@ -538,25 +550,30 @@ impl NcpInstanceBase {
             // CMD_PROP_VALUE_IS(TID=0) for PROP_LAST_STATUS, which the
             // response table ignores (TID=0). The frame task forwards
             // PROP_LAST_STATUS frames to reset_notify_rx instead.
+            self.reset_expected.store(true, Ordering::Release);
             let tid = alloc_tid();
             let header = spinel::frame::make_header(0, tid);
             let frame = SpinelFrame::with_header(header, spinel::command::CMD_RESET, Vec::new());
             if self.outbound_tx.send(frame).is_err() {
+                self.reset_expected.store(false, Ordering::Release);
                 tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES}: I/O task not running");
                 break;
             }
 
             match tokio::time::timeout(reset_timeout, reset_notify_rx.recv()).await {
                 Ok(Some(_frame)) => {
+                    self.reset_expected.store(false, Ordering::Release);
                     tracing::info!("NCP reset acknowledged (attempt {attempt})");
                     reset_success = true;
                     break;
                 }
                 Ok(None) => {
+                    self.reset_expected.store(false, Ordering::Release);
                     tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES}: reset channel closed");
                     break;
                 }
                 Err(_) => {
+                    self.reset_expected.store(false, Ordering::Release);
                     tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES} failed: timeout");
                     if attempt < MAX_RESET_RETRIES {
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

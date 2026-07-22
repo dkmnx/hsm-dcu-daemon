@@ -37,6 +37,10 @@ mod tests {
         let config = SerialConfig::default();
         assert_eq!(config.baud_rate, 115200);
         assert_eq!(config.data_bits, 8);
-        assert!(config.flow_control);
+        assert!(!config.flow_control);
+        assert!(config.clocal);
+        assert!(!config.ixon);
+        assert!(!config.ixoff);
+        assert!(!config.ixany);
     }
 }
