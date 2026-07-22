@@ -482,14 +482,35 @@ impl NcpInstanceBase {
             }
         }));
 
-        // Init: send CMD_RESET, query CAPS. On failure, leave the NCP in
-        // a fault state rather than masking it as Offline — a dead/unresponsive
-        // NCP must surface to readiness probes.
-        if let Err(e) = self
-            .send_command(spinel::command::CMD_RESET, Vec::new())
-            .await
-        {
-            tracing::error!("NCP init reset failed: {e}");
+        // Init: send CMD_RESET with extended timeout (15s = 5s command + 10s reset).
+        // Retry up to 3 times with alternating hard/soft reset (mirrors C++ logic).
+        let reset_timeout = std::time::Duration::from_millis(
+            wisun_types::NCP_DEFAULT_RESET_RESPONSE_TIMEOUT_MS,
+        );
+        const MAX_RESET_RETRIES: u8 = 3;
+        let mut reset_success = false;
+        
+        for attempt in 1..=MAX_RESET_RETRIES {
+            match self
+                .send_command_timeout(spinel::command::CMD_RESET, Vec::new(), reset_timeout)
+                .await
+            {
+                Ok(_) => {
+                    reset_success = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("NCP init reset attempt {attempt}/{MAX_RESET_RETRIES} failed: {e}");
+                    if attempt < MAX_RESET_RETRIES {
+                        // Backoff before retry
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+            }
+        }
+        
+        if !reset_success {
+            tracing::error!("NCP init reset failed after {MAX_RESET_RETRIES} attempts");
             self.set_ncp_state(NcpState::Fault).await;
             self.drain_frame_task().await;
             return;
@@ -907,6 +928,21 @@ impl NcpInstanceBase {
         command_id: u32,
         payload: Vec<u8>,
     ) -> Result<SpinelFrame, DaemonError> {
+        self.send_command_timeout(
+            command_id,
+            payload,
+            std::time::Duration::from_millis(wisun_types::NCP_DEFAULT_COMMAND_RESPONSE_TIMEOUT_MS),
+        )
+        .await
+    }
+
+    /// Send a command frame with a custom timeout and await the matching response by TID.
+    pub async fn send_command_timeout(
+        &self,
+        command_id: u32,
+        payload: Vec<u8>,
+        timeout: std::time::Duration,
+    ) -> Result<SpinelFrame, DaemonError> {
         let tid = alloc_tid();
         let header = spinel::frame::make_header(0, tid);
         let frame = SpinelFrame::with_header(header, command_id, payload);
@@ -918,7 +954,7 @@ impl NcpInstanceBase {
             return Err(DaemonError::Ncp("I/O task not running".into()));
         }
 
-        match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+        match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(resp)) => {
                 // Central status check (M1): a SET/exec response arrives as
                 // PROP_VALUE_IS(LAST_STATUS, status). Surface non-OK statuses
@@ -1629,8 +1665,12 @@ impl NcpInstanceBase {
                 if let Err(e) = crate::ncp_gpio::hard_reset(&self.config) {
                     tracing::warn!("Hard reset GPIO failed: {e}");
                 }
-                self.send_command(spinel::command::CMD_RESET, Vec::new())
-                    .await?;
+                self.send_command_timeout(
+                    spinel::command::CMD_RESET,
+                    Vec::new(),
+                    std::time::Duration::from_millis(wisun_types::NCP_DEFAULT_RESET_RESPONSE_TIMEOUT_MS),
+                )
+                .await?;
                 self.wait_for_state(|s| !s.is_initializing(), std::time::Duration::from_secs(5))
                     .await?;
                 Ok(format!("NCP:State: {}", self.get_ncp_state().await))
