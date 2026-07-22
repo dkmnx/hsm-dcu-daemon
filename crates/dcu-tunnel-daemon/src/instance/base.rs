@@ -201,6 +201,7 @@ async fn io_task<T: dcu_serial::Transport + Unpin>(
             result = outbound_rx.recv() => {
                 if let Some(frame) = result {
                     let wire = encoder.encode_frame(&frame);
+                    tracing::trace!("TX {} bytes: {:02x?}", wire.len(), &wire[..wire.len().min(64)]);
                     if transport.write_all(&wire).await.is_err() {
                         break;
                     }
@@ -210,6 +211,7 @@ async fn io_task<T: dcu_serial::Transport + Unpin>(
                 match result {
                     Ok(0) => { tracing::warn!("Transport closed"); break; }
                     Ok(n) => {
+                        tracing::trace!("RX {} bytes: {:02x?}", n, &read_buf[..n.min(64)]);
                         for &byte in &read_buf[..n] {
                             if let Some(r) = decoder.feed_byte(byte) {
                                 match r {
@@ -484,13 +486,29 @@ impl NcpInstanceBase {
 
         // Init: send CMD_RESET with extended timeout (15s = 5s command + 10s reset).
         // Retry up to 3 times with alternating hard/soft reset (mirrors C++ logic).
+        // On even attempts (0, 2, ...) do a GPIO hard reset; on odd attempts send CMD_RESET.
         let reset_timeout = std::time::Duration::from_millis(
             wisun_types::NCP_DEFAULT_RESET_RESPONSE_TIMEOUT_MS,
         );
         const MAX_RESET_RETRIES: u8 = 3;
         let mut reset_success = false;
-        
-        for attempt in 1..=MAX_RESET_RETRIES {
+
+        tracing::info!(
+            "NCP init: sending CMD_RESET (timeout={:?}, retries={})",
+            reset_timeout,
+            MAX_RESET_RETRIES
+        );
+        for attempt in 0..MAX_RESET_RETRIES {
+            // Alternate hard reset (GPIO) and soft reset (CMD_RESET),
+            // matching the C SpinelNCPInstance-Protothreads.cpp retry logic.
+            if attempt % 2 == 0 {
+                // Hard reset via GPIO if configured.
+                let config = self.config.clone();
+                if let Err(e) = tokio::task::spawn_blocking(move || crate::ncp_gpio::hard_reset(&config)).await.expect("hard_reset task panicked") {
+                    tracing::warn!("Hard reset GPIO failed: {e}");
+                }
+            }
+
             match self
                 .send_command_timeout(spinel::command::CMD_RESET, Vec::new(), reset_timeout)
                 .await
